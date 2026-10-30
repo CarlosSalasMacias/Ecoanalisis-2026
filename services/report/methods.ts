@@ -138,6 +138,10 @@ export function buildMethodology(ctx: MethodsContext): GeneratedText {
     out.push(lines.join('\n'));
     const outside = bio.equationsUsed.reduce((a, u) => a + u.outsideRange, 0);
     const notes: string[] = [];
+    const fromDap = bio.equationsUsed.reduce((a, u) => a + (u.fromDapColumn ?? 0), 0);
+    if (fromDap > 0) notes.push(es
+      ? `Según el protocolo de campo, en café el diámetro se midió a 15 cm del suelo y en cacao y cítricos a 30 cm, y se registró en la misma columna que el DAP del resto de especies (${fromDap} individuos).`
+      : `Following the field protocol, stem diameter was measured 15 cm above the ground in coffee and 30 cm in cacao and citrus, and recorded in the same column as the DBH of the other species (${fromDap} individuals).`);
     if (outside > 0) notes.push(es
       ? `${outside} individuos quedaron fuera del rango de calibración publicado de su ecuación.`
       : `${outside} individuals fell outside the published calibration range of their equation.`);

@@ -22,7 +22,7 @@ export const ANALYSIS_SETTINGS = {
 
 import { lookupWoodDensity, WoodDensityDB } from './woodDensity';
 import { carbonUncertainty, DENSITY_SD_COLUMN } from './carbonUncertainty';
-import { DENSITY_USED_COLUMN, EQUATIONS, EquationUsage, computeAGB, equationForRow, isCrop, isOutsideRange, missingInputs } from './biomassEquations';
+import { CROP_DIAMETER, DENSITY_USED_COLUMN, EQUATIONS, EquationUsage, computeAGB, cropKind, diameterFromDapColumn, equationForRow, isCrop, isOutsideRange, missingInputs } from './biomassEquations';
 import { SpeciesData, SiteData, CooccurrenceMatrix, CooccurrenceResult, SignificantPair, EnvironmentalAnalysisResult, AllEnvironmentalAnalyses, SingleNicheData, SiteNicheData, StructuralAnalysisResult, SpeciesStructuralMetrics, CorrelationMatrix, CCACoordinates, EllipseData, IndValResult, SiteStructuralAnalysis, SiteCooccurrenceMatrix, ForestDataRow, EquationSelection, PlotInfo, SummaryRow, BiomassAnalysisResults, SiteEcologicalParameters, FullStructuralAnalysis, SiteStandCharacteristics, PlotSummaryRow, RarefactionData, RarefactionCurve, SingleCCAPlotData, CooccurrenceResult as _CR } from '../types';
 
 /**
@@ -77,9 +77,16 @@ export function parseData(data: string[][], isSpeciesData: boolean): SpeciesData
         }
       });
       // Área basal con el DAP; si el individuo solo tiene diámetro a 30 o 15 cm (cultivos), con ese.
-      const source = (['DAP (cm)', 'D30 (cm)', 'D15 (cm)'] as const).find(c => typeof entry[c] === 'number' && entry[c] > 0);
+      // En café, cacao y cítricos sin dato en su columna propia (D15 o D30), la columna DAP guarda ese
+      // diámetro según el protocolo de campo, y así se registra.
+      const has = (c: string) => typeof entry[c] === 'number' && entry[c] > 0;
+      const source = (['DAP (cm)', 'D30 (cm)', 'D15 (cm)'] as const).find(has);
       entry['Área basal (cm²)'] = source ? calculateBasalArea(entry[source]) : 0;
-      entry['Diámetro del área basal'] = source ? source.replace(' (cm)', '') : '';
+      const kind = cropKind(entry);
+      const cropDiam = kind && CROP_DIAMETER[kind] !== 'dbh' ? CROP_DIAMETER[kind] : null;
+      const cropCol = cropDiam === 'd15' ? 'D15 (cm)' : 'D30 (cm)';
+      const dapMeans = cropDiam && source === 'DAP (cm)' && !has(cropCol) ? cropDiam.toUpperCase() : null;
+      entry['Diámetro del área basal'] = source ? (dapMeans ?? source.replace(' (cm)', '')) : '';
       
       const scientificName = entry['Nombre científico (Completo)'];
       if (scientificName && typeof scientificName === 'string' && scientificName.includes(' ')) {
@@ -1048,9 +1055,10 @@ const summarizeEquationUsage = (data: ForestDataRow[]): EquationUsage[] => {
         const eq = EQUATIONS[id];
         usage[id] ??= {
             equation: id, label: eq.label, reference: eq.reference, verified: eq.verified,
-            diameter: eq.diameter, trees: 0, computed: 0, outsideRange: 0, missing: {},
+            diameter: eq.diameter, trees: 0, computed: 0, outsideRange: 0, missing: {}, fromDapColumn: 0,
         };
         usage[id].trees++;
+        if (eq.needsDiameter !== false && diameterFromDapColumn(row, eq.diameter)) usage[id].fromDapColumn++;
         if (typeof row['AGB_Mg'] === 'number') usage[id].computed++;
         else {
             const miss = missingInputs(id, row);

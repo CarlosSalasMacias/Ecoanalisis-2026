@@ -175,11 +175,52 @@ export const DIAMETER_COLUMN: Record<DiameterKind, string> = {
 /** Columna con la densidad de madera finalmente usada (la del usuario o la de la GWDD). */
 export const DENSITY_USED_COLUMN = 'Densidad usada (g/cm3)';
 
+export type CropKind = 'cafe' | 'cacao' | 'citricos' | 'musaceas';
+
+/** Altura de medición del diámetro según el protocolo de campo de cada cultivo. */
+export const CROP_DIAMETER: Record<CropKind, DiameterKind> = { cafe: 'd15', cacao: 'd30', citricos: 'd30', musaceas: 'dbh' };
+
+const CROP_PATTERNS: [CropKind, RegExp][] = [
+  ['cafe', /\b(coffea|cafe|caffe|cafeto|cafetal)\b/],
+  ['cacao', /\b(cacao|cocoa|cacaotero)\b/],
+  ['citricos', /\b(citrus|naranja|naranjo|limon|limonero|mandarina|mandarino|toronja|pomelo|tangelo)\b/],
+  ['musaceas', /\b(musa|platano|banano|banana|guineo)\b/],
+];
+
+const normalizeName = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * Cultivo al que pertenece el individuo (café, cacao, cítricos o musáceas), reconocido por el nombre
+ * científico y, si no, por el nombre común. null si no es uno de estos cultivos.
+ */
+export const cropKind = (row: ForestDataRow): CropKind | null => {
+  for (const col of ['Nombre científico (Completo)', 'N.Com_identificado', 'N.Com_campo']) {
+    const name = normalizeName(row[col]);
+    if (!name) continue;
+    const hit = CROP_PATTERNS.find(([, re]) => re.test(name));
+    if (hit) return hit[0];
+  }
+  return null;
+};
+
+/**
+ * true si el diámetro `diameter` de este individuo se toma de la columna DAP: ocurre en café (d15),
+ * cacao y cítricos (d30) cuando su columna propia está vacía, porque en el protocolo de campo la
+ * columna DAP guarda el diámetro medido a la altura que corresponde a cada cultivo.
+ */
+export const diameterFromDapColumn = (row: ForestDataRow, diameter: DiameterKind): boolean => {
+  if (diameter === 'dbh') return false;
+  const kind = cropKind(row);
+  if (!kind || CROP_DIAMETER[kind] !== diameter) return false;
+  return !(parseNumber(row[DIAMETER_COLUMN[diameter]]) > 0) && parseNumber(row[DIAMETER_COLUMN.dbh]) > 0;
+};
+
 /** Lee las variables del individuo; el diámetro se toma de la columna que exige la ecuación. */
 export const readTree = (row: ForestDataRow, diameter: DiameterKind = 'dbh') => {
   const used = parseNumber(row[DENSITY_USED_COLUMN]);
+  const column = diameterFromDapColumn(row, diameter) ? DIAMETER_COLUMN.dbh : DIAMETER_COLUMN[diameter];
   return {
-    D: parseNumber(row[DIAMETER_COLUMN[diameter]]),
+    D: parseNumber(row[column]),
     H: parseNumber(row['Altura (m)']),
     rho: Number.isFinite(used) ? used : parseNumber(row['Densidad (g/cm3)']),
   };
@@ -196,22 +237,23 @@ export const isCrop = (row: ForestDataRow): boolean => {
   const flag = String(row['Cultivo'] ?? '').trim().toLowerCase();
   if (['sí', 'si', 's', 'yes', 'y', 'x', '1', 'true', 'verdadero'].includes(flag)) return true;
   if (['no', 'n', '0', 'false', 'falso'].includes(flag)) return false;
+  if (cropKind(row)) return true;
   const name = String(row['Nombre científico (Completo)'] || '').toLowerCase();
   return CROP_NAMES.some(c => name.includes(c));
 };
 
 /** Ecuación que corresponde a un individuo: primero por especie (cultivos), luego la del tipo de vegetación. */
 export const equationForRow = (row: ForestDataRow, selections: Record<string, string>): string | null => {
-  const name = String(row['Nombre científico (Completo)'] || '').toLowerCase();
   const veg = row['Tipo de vegetación'];
-  if (name.includes('theobroma cacao')) return 'cacao';
-  if (name.includes('coffea') || name.includes('café') || name.includes('cafe')) {
+  const kind = cropKind(row);
+  if (kind === 'cacao') return 'cacao';
+  if (kind === 'cafe') {
     const { D, H } = readTree(row, 'd15');
     if (D > 0) return H > 0 ? 'cafe_altura' : 'cafe';
     return H > 0 ? 'cafe_solo_altura' : 'cafe';
   }
-  if (name.includes('citrus')) return 'citrus';
-  if (name.includes('musa')) return 'musa_sp';
+  if (kind === 'citricos') return 'citrus';
+  if (kind === 'musaceas') return 'musa_sp';
   if (typeof veg === 'string' && selections[veg]) return selections[veg];
   return null;
 };
@@ -256,6 +298,8 @@ export interface EquationUsage {
   outsideRange: number;
   /** Columnas que faltaban en los individuos sin resultado, con su número. */
   missing: Record<string, number>;
+  /** Individuos cuyo d15/d30 se leyó de la columna DAP (protocolo de campo de cultivos). */
+  fromDapColumn: number;
 }
 
 /** Error residual del modelo en escala de logaritmo natural (null si la fuente verificada no lo da). */
