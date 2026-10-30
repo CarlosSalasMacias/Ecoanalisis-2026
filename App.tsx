@@ -1,8 +1,8 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { SpeciesData, SiteCooccurrenceMatrix, SignificantPair, AllEnvironmentalAnalyses, SingleNicheData, SingleCCAPlotData, CooccurrenceCell, SiteEcologicalParameters, RarefactionData, IndValResult, FullStructuralAnalysis, SiteNicheData, SiteCCAPlotData, BiomassAnalysisResults, EquationSelection, PlotInfo, ForestDataRow, SiteData } from './types';
-import { parseData, parseSiteData, runCooccurrenceAnalysis, getSignificantPairs, analyzeAllEnvironmentalFactors, calculateSpeciesEnvironmentalNiche, runStructuralAnalysis, calculateCorrelationMatrix, calculateEllipsesFromClusteredPoints, calculateEcologicalParameters, runIndValAnalysis, runBiomassAnalysis, calculateRarefactionData } from './services/analysisService';
-import { generateFinalInterpretation, generateCCAPlotData, generateMethodology, hasApiKeyConfigured, getApiKey } from './services/geminiService';
+import { parseData, parseSiteData, runCooccurrenceAnalysis, getSignificantPairs, analyzeAllEnvironmentalFactors, calculateSpeciesEnvironmentalNiche, runStructuralAnalysis, runCCAAnalysis, calculateEcologicalParameters, runIndValAnalysis, runBiomassAnalysis, calculateRarefactionData } from './services/analysisService';
+import { generateFinalInterpretation, generateMethodology, hasApiKeyConfigured, getApiKey } from './services/geminiService';
 import { generateMethodologyDocx, generateInterpretationDocx } from './services/docxGenerator';
 import DataInput from './components/DataInput';
 import CooccurrenceTable from './components/CooccurrenceTable';
@@ -34,16 +34,17 @@ const formatMatrixForPrompt = (matrix: SiteCooccurrenceMatrix['General']): strin
       const cell = matrix[spA][spB] as CooccurrenceCell;
       if ('effect' in cell) {
         const p_value = cell.obs > cell.exp ? cell.p_gt : cell.p_lt;
+        const pText = `p = ${p_value.toPrecision(2)}, FDR-adjusted p = ${cell.p_adj !== null ? cell.p_adj.toPrecision(2) : 'n/a'}`;
         if (cell.effect === 'positive') {
-          positivePairs.push(`- *${spA}* & *${spB}*: co-occur more than expected (Obs: ${cell.obs}, Exp: ${cell.exp.toFixed(1)}, p-value: ${p_value.toPrecision(2)})`);
+          positivePairs.push(`- *${spA}* & *${spB}*: co-occur more than expected (Obs: ${cell.obs}, Exp: ${cell.exp.toFixed(1)}, ${pText})`);
         } else if (cell.effect === 'negative') {
-          negativePairs.push(`- *${spA}* & *${spB}*: co-occur less than expected (Obs: ${cell.obs}, Exp: ${cell.exp.toFixed(1)}, p-value: ${p_value.toPrecision(2)})`);
+          negativePairs.push(`- *${spA}* & *${spB}*: co-occur less than expected (Obs: ${cell.obs}, Exp: ${cell.exp.toFixed(1)}, ${pText})`);
         }
       }
     });
   });
 
-  let summary = 'Co-occurrence Statistical Analysis Summary (alpha = 0.05):\n\n';
+  let summary = 'Co-occurrence Statistical Analysis Summary (probabilistic model of Veech 2013; pairs with expected co-occurrence < 1 not tested; significance at FDR-adjusted p < 0.05, Benjamini–Hochberg):\n\n';
   if (positivePairs.length > 0) {
     summary += 'Pairs with **significant POSITIVE association**:\n';
     summary += positivePairs.join('\n');
@@ -104,48 +105,26 @@ const formatNicheAnalysisForPrompt = (nicheData: SingleNicheData | null): string
 };
 
 const formatCCAPlotDataForPrompt = (ccaPlotData: SingleCCAPlotData | null): string => {
-    if (!ccaPlotData) {
-        return "CCA analysis was not performed.";
+    if (!ccaPlotData || !ccaPlotData.stats) {
+        return `CCA analysis was not performed. ${(ccaPlotData?.notes || []).join(' ')}`;
     }
-
-    let summary = 'Canonical Correspondence Analysis (CCA) - Relationship Summary:\n\n';
-
-    if(ccaPlotData.varianceExplained) {
-        summary += `The first two axes explain **${ccaPlotData.varianceExplained[0]}%** and **${ccaPlotData.varianceExplained[1]}%** of the variance in the species-environment relationship, respectively.\n\n`;
-    }
-
-    summary += '**Key Biplot Relationships:**\n';
-    ccaPlotData.biplot.vectors.forEach(vector => {
-        summary += `- The variable **${vector.name}** is an important gradient.\n`;
-        const associatedSpecies = ccaPlotData.biplot.species
-            .filter(sp => {
-                const dotProduct = sp.x * vector.x + sp.y * vector.y;
-                const vectorMagnitude = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
-                return dotProduct > (vectorMagnitude * vectorMagnitude * 0.5); 
-            })
-            .map(sp => sp.name);
-
-        if (associatedSpecies.length > 0) {
-            summary += `  - Species like *${associatedSpecies.join(', ')}* are positively associated with this factor.\n`;
-        }
+    const st = ccaPlotData.stats;
+    let summary = 'Canonical Correspondence Analysis (CCA; computed numerically, equivalent to vegan::cca):\n\n';
+    summary += `- Plots: ${st.nSites}; species: ${st.nSpecies}; environmental variables: ${Object.keys(st.vif).join(', ')}.\n`;
+    summary += `- Total inertia: ${st.totalInertia.toFixed(4)}; constrained inertia: ${st.constrainedInertia.toFixed(4)} (${st.constrainedPercent.toFixed(1)}% of total).\n`;
+    summary += `- CCA1 explains ${st.axisPercent[0]?.toFixed(1) ?? 0}% and CCA2 ${st.axisPercent[1]?.toFixed(1) ?? 0}% of total inertia (eigenvalues: ${st.eigenvalues.slice(0, 2).map(e => e.toFixed(4)).join(', ')}).\n`;
+    summary += `- Permutation test of the whole model: pseudo-F = ${st.F.toFixed(3)}, df = ${st.df}, ${st.dfResidual}, p = ${st.pValue.toFixed(3)} (${st.nPermutations} permutations).\n`;
+    summary += `- Variance inflation factors: ${Object.entries(st.vif).map(([k, v]) => `${k} = ${Number.isFinite(v) ? v.toFixed(2) : '∞'}`).join('; ')}.\n`;
+    summary += '\n**Biplot scores of environmental variables (correlation with CCA1, CCA2):**\n';
+    ccaPlotData.biplot.vectors.forEach(v => {
+        summary += `- ${v.name}: ${v.x.toFixed(3)}, ${v.y.toFixed(3)}\n`;
     });
-
-    summary += '\n**Strongest Species-Environment Correlations:**\n';
-    const correlations: { species: string; factor: string; value: number }[] = [];
-    const sortedSpecies = Object.keys(ccaPlotData.correlationMatrix).sort();
-    
-    sortedSpecies.forEach(species => {
-        const sortedFactors = Object.keys(ccaPlotData.correlationMatrix[species]).sort();
-        sortedFactors.forEach(factor => {
-            correlations.push({ species, factor, value: ccaPlotData.correlationMatrix[species][factor] });
-        });
+    const labeled = ccaPlotData.biplot.species.filter(s => !s.isBackground);
+    summary += '\n**Scores (scaling 2) of the most abundant species (CCA1, CCA2):**\n';
+    labeled.forEach(sp => {
+        summary += `- *${sp.name}*: ${sp.x.toFixed(3)}, ${sp.y.toFixed(3)}\n`;
     });
-
-    correlations.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-    const topCorrelations = correlations.slice(0, 5);
-    
-    summary += '  - Top Correlations: ' + topCorrelations.map(c => `*${c.species}* & **${c.factor}** (${c.value.toFixed(2)})`).join('; ') + '\n';
-
+    if (ccaPlotData.notes?.length) summary += `\nNotes: ${ccaPlotData.notes.join(' ')}\n`;
     return summary;
 };
 
@@ -155,12 +134,12 @@ const formatEcoParamsForPrompt = (ecoParams: SiteEcologicalParameters | null): s
     if (sites.length === 0) return "No ecological parameter data available.";
 
     let table = `Summary of Ecological Parameters per Site:\n\n`;
-    table += `| Site | Richness (S) | Individuals (N) | Shannon (H') | Simpson (D) | Pielou (J') | Sample Coverage (SC) | Margalef (d) | Chao-1 |\n`;
+    table += `| Site | Richness (S) | Individuals (N) | Shannon (H') | Simpson (D) | Pielou (J') | Sample Coverage (SC) | Margalef (d) | Chao-1 (95% CI) |\n`;
     table += `|---|---|---|---|---|---|---|---|---|\n`;
 
     sites.forEach(site => {
         const d = ecoParams[site];
-        table += `| ${site} | ${d.speciesRichness} | ${d.individuals} | ${d.shannon.toFixed(3)} | ${d.simpsonDominance.toFixed(3)} | ${d.pielouEvenness.toFixed(3)} | ${d.sampleCoverage.toFixed(3)} | ${d.margalefRichness.toFixed(3)} | ${d.chao1.toFixed(3)} |\n`;
+        table += `| ${site} | ${d.speciesRichness} | ${d.individuals} | ${d.shannon.toFixed(3)} | ${d.simpsonDominance.toFixed(3)} | ${d.pielouEvenness.toFixed(3)} | ${d.sampleCoverage.toFixed(3)} | ${d.margalefRichness.toFixed(3)} | ${d.chao1.toFixed(2)} (${d.chao1Lower.toFixed(2)}–${d.chao1Upper.toFixed(2)}) |\n`;
     });
 
     return table;
@@ -171,15 +150,15 @@ const formatIndValForPrompt = (indValData: IndValResult | null): string => {
     const species = Object.keys(indValData).sort();
     if (species.length === 0) return "No indicator species data available.";
 
-    let summary = 'Indicator Species Analysis (IndVal) - Significant Indicators (p < 0.05):\n\n';
+    let summary = 'Indicator Species Analysis (IndVal; Dufrêne & Legendre 1997; 999 permutations) - Significant Indicators (p < 0.05):\n\n';
     let significantFound = false;
     
     species.forEach(sp => {
         const sites = Object.keys(indValData[sp]).sort();
         sites.forEach(site => {
-            const { indval, pvalue } = indValData[sp][site];
-            if (pvalue < 0.05) {
-                summary += `- ***${sp}*** is a significant indicator for site **${site}** (IndVal: ${indval.toFixed(1)}%, p: ${pvalue.toFixed(3)})\n`;
+            const { indval, pvalue, pAdj, isBest } = indValData[sp][site];
+            if (isBest && pvalue !== null && pvalue < 0.05) {
+                summary += `- ***${sp}*** is a significant indicator for site **${site}** (IndVal: ${indval.toFixed(1)}%, p: ${pvalue.toFixed(3)}, FDR-adjusted p: ${pAdj?.toFixed(3)})\n`;
                 significantFound = true;
             }
         });
@@ -196,18 +175,21 @@ const formatRarefactionForPrompt = (rarefactionData: RarefactionData | null): st
     const sites = Object.keys(rarefactionData).sort();
     if (sites.length === 0) return "No rarefaction data available.";
 
-    let summary = 'Rarefaction and Extrapolation Analysis Summary:\n\n';
+    let summary = 'Rarefaction and Extrapolation of Hill numbers (iNEXT method, Chao et al. 2014; 95% bootstrap CI):\n\n';
     sites.forEach(site => {
         const data = rarefactionData[site];
-        const observedPoint = data.observed.point;
-        const extrapolatedEndPoint = data.extrapolated.curve[data.extrapolated.curve.length - 1];
-        
-        summary += `**Site: ${site}**\n`;
-        summary += `- **Sampling Completeness:** Observed ${observedPoint.y} species from ${observedPoint.x} individuals.\n`;
-        if (extrapolatedEndPoint) {
-            summary += `- **Extrapolation:** Doubling the sample size to ${extrapolatedEndPoint.x} individuals is expected to yield approximately ${Math.round(extrapolatedEndPoint.y)} species.\n`;
-        }
-        summary += `- **Interpretation:** Assess if the rarefaction curve is approaching an asymptote. If it's still rising steeply, significant diversity remains unsampled.\n\n`;
+        summary += `**Site: ${site}** (n = ${data.n} individuals, S = ${data.S} species)\n`;
+        const obsCov = data.coverage.find(c => c.m === data.n);
+        if (obsCov) summary += `- Sample coverage at n: ${(100 * obsCov.SC).toFixed(1)}%.\n`;
+        (['0', '1', '2'] as const).forEach(q => {
+            const curve = data.byOrder[q];
+            const end = curve.extrapolated.curve[curve.extrapolated.curve.length - 1];
+            const endIdx = curve.confidenceInterval.upper.length - 1;
+            summary += `- q = ${q}: observed ${curve.observed.point.y.toFixed(2)}`;
+            if (end) summary += `; extrapolated to ${end.x} individuals: ${end.y.toFixed(2)} (95% CI ${curve.confidenceInterval.lower[endIdx].y.toFixed(2)}–${curve.confidenceInterval.upper[endIdx].y.toFixed(2)})`;
+            summary += '\n';
+        });
+        summary += '\n';
     });
     return summary;
 };
@@ -365,35 +347,17 @@ const App: React.FC = () => {
             const envAnalyses = analyzeAllEnvironmentalFactors(sigPairs, speciesData, siteData);
             setAllEnvironmentalAnalyses(envAnalyses);
 
-            setIsCcaSiteLoading(true);
-            const [ccaResult] = await Promise.allSettled([
-                generateCCAPlotData(speciesData, siteData)
-            ]);
-            
-            if(ccaResult.status === 'fulfilled') {
-                const correlationMatrix = calculateCorrelationMatrix(speciesData, siteData);
-                const ellipses = calculateEllipsesFromClusteredPoints(ccaResult.value.species);
-                const newCcaData: SiteCCAPlotData = {
-                  General: {
-                    isPlaceholder: false,
-                    biplot: ccaResult.value,
-                    correlationMatrix,
-                    ellipses,
-                    varianceExplained: ccaResult.value.varianceExplained,
-                  }
-                };
-                allSites.forEach(site => { 
-                    newCcaData[site] = { 
-                        isPlaceholder: true,
-                        biplot: { species: [], vectors: [] }, 
-                        correlationMatrix: {},
-                    }; 
-                });
-                setCcaPlotData(newCcaData);
-            } else {
-                 setError(`${t.ccaPlotError} ${ccaResult.reason?.message || t.unknownCcaError}`);
-            }
-             setIsCcaSiteLoading(false);
+            // CCA computed numerically for the whole community and for each vegetation type.
+            const newCcaData: SiteCCAPlotData = { General: runCCAAnalysis(speciesData, siteData) };
+            allSites.forEach(site => {
+                const siteSpecies = speciesData.filter(d => d['Tipo de vegetación'] === site);
+                const sitePlots = new Set(siteSpecies.map(d => `${d['Tipo de vegetación']}-${d.Parcela}`));
+                const siteEnv: SiteData = Object.fromEntries(
+                    Object.entries(siteData).filter(([key]) => sitePlots.has(key)),
+                );
+                newCcaData[site] = runCCAAnalysis(siteSpecies, siteEnv);
+            });
+            setCcaPlotData(newCcaData);
 
         } catch (e: any) {
             setError(`${t.analysisFailedError} ${e.message || t.unknownAnalysisError}`);
@@ -402,56 +366,9 @@ const App: React.FC = () => {
         }
     }, [speciesGridData, siteGridData, biomassConfig, t, isBiomassAnalysisEnabled]);
     
-    const handleCCASiteChange = useCallback(async (site: string) => {
+    const handleCCASiteChange = useCallback((site: string) => {
         setCcaSelectedSite(site);
-        if (!ccaPlotData || !ccaPlotData[site]?.isPlaceholder) {
-           return;
-        }
-        
-        setIsCcaSiteLoading(true);
-        setError(null);
-        try {
-            const speciesData = parseData(speciesGridData, true) as SpeciesData[];
-            const allSiteData = parseSiteData(siteGridData);
-            
-            const siteSpeciesData = speciesData.filter(d => d['Tipo de vegetación'] === site);
-            const sitePlots = new Set(siteSpeciesData.map(d => `${d['Tipo de vegetación']}-${d.Parcela}`));
-            const currentSiteData: SiteData = Object.entries(allSiteData)
-                .filter(([key]) => sitePlots.has(key))
-                .reduce((acc, [key, value]) => {
-                    acc[key] = value;
-                    return acc;
-                }, {} as SiteData);
-
-            if (siteSpeciesData.length < 2 || Object.keys(currentSiteData).length < 2) {
-                setCcaPlotData(prev => prev ? { ...prev, [site]: { isPlaceholder: false, biplot: { species: [], vectors: [] }, correlationMatrix: {} } } : null);
-                setIsCcaSiteLoading(false);
-                return;
-            }
-
-            const biplot = await generateCCAPlotData(siteSpeciesData, currentSiteData);
-            const correlationMatrix = calculateCorrelationMatrix(siteSpeciesData, currentSiteData);
-            const ellipses = calculateEllipsesFromClusteredPoints(biplot.species);
-
-            setCcaPlotData(prev => {
-                if (!prev) return null;
-                return {
-                    ...prev,
-                    [site]: {
-                        isPlaceholder: false,
-                        biplot: biplot,
-                        correlationMatrix,
-                        ellipses,
-                        varianceExplained: biplot.varianceExplained,
-                    }
-                };
-            });
-        } catch (e: any) {
-             setError(`${t.ccaPlotError} ${e.message || t.unknownCcaError}`);
-        } finally {
-            setIsCcaSiteLoading(false);
-        }
-    }, [ccaPlotData, speciesGridData, siteGridData, t]);
+    }, []);
     
     const handleIndValSiteChange = useCallback(async (site: string) => {
         setIndValSelectedSite(site);
@@ -632,8 +549,8 @@ const App: React.FC = () => {
                                 </p>
                                 <p className="text-xs text-amber-800 leading-relaxed md:max-w-3xl">
                                     {language === 'es' 
-                                        ? 'Para usar las funciones de Inteligencia Artificial (Análisis CCA, generar interpretaciones históricas, metodología y rarefacción), configure una clave de API de Gemini personal y gratuita. Sus datos nunca saldrán de su navegador.' 
-                                        : 'To use the Artificial Intelligence features (CCA analysis, generating historical interpretations, methodology, and rarefaction), please configure a personal and free Gemini API key. Your data never leaves your browser.'}
+                                        ? 'Todos los análisis estadísticos (incluidos CCA y rarefacción) se calculan en su navegador y no requieren clave. La clave de API de Gemini solo se usa para redactar la interpretación y la metodología; para ello se envía a Google un resumen de los resultados (no los datos de campo completos).' 
+                                        : 'All statistical analyses (including CCA and rarefaction) run in your browser and need no key. The Gemini API key is only used to draft the interpretation and methodology; to do so, a summary of the results (not the full field data) is sent to Google.'}
                                 </p>
                             </div>
                             <button

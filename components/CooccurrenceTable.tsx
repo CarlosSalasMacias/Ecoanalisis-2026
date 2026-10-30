@@ -156,7 +156,7 @@ const CooccurrenceTable: React.FC<CooccurrenceTableProps> = ({ matrix, sites, se
   }, [currentMatrix, species]);
 
   const handleExportCSV = () => {
-    const headers = ['Species_A', 'Species_B', 'Observed', 'Expected', 'P_Value', 'Statistical_Effect'];
+    const headers = ['Species_A', 'Species_B', 'Observed', 'Expected', 'P_lower', 'P_upper', 'P_directional', 'P_adjusted_FDR', 'Tested', 'Statistical_Effect'];
     const rows: (string|number)[][] = [];
 
     for (let i = 0; i < species.length; i++) {
@@ -172,7 +172,11 @@ const CooccurrenceTable: React.FC<CooccurrenceTableProps> = ({ matrix, sites, se
                     spB,
                     cell.obs,
                     cell.exp.toFixed(4),
+                    cell.p_lt.toPrecision(4),
+                    cell.p_gt.toPrecision(4),
                     p_value.toPrecision(4),
+                    cell.p_adj !== null ? cell.p_adj.toPrecision(4) : 'NA',
+                    cell.tested ? 'yes' : 'no (expected < 1)',
                     cell.effect
                 ]);
             }
@@ -219,7 +223,10 @@ const CooccurrenceTable: React.FC<CooccurrenceTableProps> = ({ matrix, sites, se
         .replace('{obs}', String(obs))
         .replace('{exp}', exp.toFixed(2))
         .replace('{p_value}', p_value.toPrecision(3))
-        .replace('{effect}', effect);
+        .replace('{effect}', effect)
+        + (cellData.tested
+            ? ` · ${t.pAdjValue}: ${cellData.p_adj !== null ? cellData.p_adj.toPrecision(3) : 'NA'}`
+            : ` · ${t.cooccurrenceNotTested}`);
       
       return (
         <td
@@ -328,6 +335,7 @@ const CooccurrenceTable: React.FC<CooccurrenceTableProps> = ({ matrix, sites, se
             {t.noDataForSite}
         </p>
       )}
+      <p className="text-xs text-gray-500 italic">{t.cooccurrenceMethodNote}</p>
     </div>
   );
 };

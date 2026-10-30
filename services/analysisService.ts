@@ -1,6 +1,12 @@
 
 
-import { SpeciesData, SiteData, CooccurrenceMatrix, CooccurrenceResult, SignificantPair, EnvironmentalAnalysisResult, AllEnvironmentalAnalyses, SingleNicheData, SiteNicheData, StructuralAnalysisResult, SpeciesStructuralMetrics, CorrelationMatrix, CCACoordinates, EllipseData, IndValResult, SiteStructuralAnalysis, SiteCooccurrenceMatrix, ForestDataRow, EquationSelection, PlotInfo, SummaryRow, BiomassAnalysisResults, SiteEcologicalParameters, FullStructuralAnalysis, SiteStandCharacteristics, PlotSummaryRow, RarefactionData, RarefactionPoint } from '../types';
+import { cooccurrenceAnalysis } from './stats/cooccurrence';
+import { chao1, sampleCoverage as coverageEstimate, shannonEntropy, simpsonDominance as simpsonDominanceIndex } from './stats/diversity';
+import { indicatorSpecies } from './stats/indval';
+import { cca, ccaPermutationTest, groupEllipses } from './stats/cca';
+import { rarefactionExtrapolation } from './stats/inext';
+import { DEFAULT_SEED } from './stats/random';
+import { SpeciesData, SiteData, CooccurrenceMatrix, CooccurrenceResult, SignificantPair, EnvironmentalAnalysisResult, AllEnvironmentalAnalyses, SingleNicheData, SiteNicheData, StructuralAnalysisResult, SpeciesStructuralMetrics, CorrelationMatrix, CCACoordinates, EllipseData, IndValResult, SiteStructuralAnalysis, SiteCooccurrenceMatrix, ForestDataRow, EquationSelection, PlotInfo, SummaryRow, BiomassAnalysisResults, SiteEcologicalParameters, FullStructuralAnalysis, SiteStandCharacteristics, PlotSummaryRow, RarefactionData, RarefactionCurve, SingleCCAPlotData, CooccurrenceResult as _CR } from '../types';
 
 /**
  * Calculates the basal area from Diameter at Breast Height (DAP).
@@ -122,44 +128,38 @@ export function parseSiteData(data: string[][]): SiteData {
   return parsed;
 }
 
-// --- Statistical Calculation Helpers ---
+// --- Statistical engine (validated against R: see tests/ and validation/) ---
 
-// Memoized log-gamma function using Lanczos approximation for numerical stability
-const logGammaCache: { [key: number]: number } = {};
-function logGamma(z: number): number {
-  if (logGammaCache[z]) return logGammaCache[z];
-  
-  const g = 7;
-  const p = [
-    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-    771.32342877765313, -176.61502916214059, 12.507343278686905,
-    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7
-  ];
-
-  if (z < 0.5) {
-    return Math.PI / Math.sin(Math.PI * z) - logGamma(1 - z);
-  }
-
-  z -= 1;
-  let x = p[0];
-  for (let i = 1; i < g + 2; i++) {
-    x += p[i] / (z + i);
-  }
-  const t = z + g + 0.5;
-  const result = Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
-  logGammaCache[z + 1] = Math.log(result);
-  return logGammaCache[z + 1];
-}
-
-// Log of combinations C(n, k)
-function logCombinations(n: number, k: number): number {
-  if (k < 0 || k > n) return -Infinity;
-  return logGamma(n + 1) - logGamma(k + 1) - logGamma(n - k + 1);
-}
-
-// Log of hypergeometric probability P(X=k)
-function logHypergeometricProb(k: number, N: number, n1: number, n2: number): number {
-  return logCombinations(n1, k) + logCombinations(N - n1, n2 - k) - logCombinations(N, n2);
+/** Builds a plots × species abundance matrix. Plot keys are "Tipo de vegetación-Parcela". */
+export function buildCommunity(speciesData: SpeciesData[]): {
+    plots: string[];
+    groups: string[];
+    species: string[];
+    abundance: number[][];
+} {
+    const plotGroup = new Map<string, string>();
+    const counts = new Map<string, Map<string, number>>();
+    const speciesSet = new Set<string>();
+    speciesData.forEach(record => {
+        const site = record['Tipo de vegetación'];
+        const plot = record['Parcela'];
+        const sp = record['N_Científico (Abreviado)'];
+        if (!site || !plot || !sp) return;
+        const key = `${site}-${plot}`;
+        plotGroup.set(key, String(site));
+        speciesSet.add(String(sp));
+        if (!counts.has(key)) counts.set(key, new Map());
+        const row = counts.get(key)!;
+        row.set(String(sp), (row.get(String(sp)) || 0) + 1);
+    });
+    const plots = Array.from(counts.keys()).sort();
+    const species = Array.from(speciesSet).sort();
+    return {
+        plots,
+        groups: plots.map(p => plotGroup.get(p)!),
+        species,
+        abundance: plots.map(p => species.map(sp => counts.get(p)!.get(sp) || 0)),
+    };
 }
 
 const getSpeciesPresenceByLocation = (speciesData: SpeciesData[]): { [locationKey: string]: Set<string> } => {
@@ -181,64 +181,27 @@ const getSpeciesPresenceByLocation = (speciesData: SpeciesData[]): { [locationKe
 
 const calculateCooccurrenceForSubset = (speciesData: SpeciesData[]): CooccurrenceMatrix => {
     const locations = getSpeciesPresenceByLocation(speciesData);
-    const allSpeciesSet = new Set<string>();
-    speciesData.forEach(r => {
-        if (r['N_Científico (Abreviado)']) allSpeciesSet.add(r['N_Científico (Abreviado)']);
-    });
-
-    const allSpecies = Array.from(allSpeciesSet).sort();
-    const locationKeys = Object.keys(locations);
-    const N = locationKeys.length;
-
-    if (N === 0 || allSpecies.length < 2) {
-        return {}; // Not enough data for analysis in this subset
-    }
-
-    const speciesCounts: { [species: string]: number } = {};
-    allSpecies.forEach(sp => {
-        speciesCounts[sp] = locationKeys.filter(loc => locations[loc].has(sp)).length;
-    });
+    if (Object.keys(locations).length === 0) return {};
+    const result = cooccurrenceAnalysis(locations, { alpha: 0.05, threshold: true, adjust: true });
+    if (result.species.length < 2) return {};
 
     const matrix: CooccurrenceMatrix = {};
-    allSpecies.forEach(spA => { matrix[spA] = {}; });
-
-    for (let i = 0; i < allSpecies.length; i++) {
-        for (let j = i; j < allSpecies.length; j++) {
-            const sp1 = allSpecies[i];
-            const sp2 = allSpecies[j];
-            const n1 = speciesCounts[sp1];
-            const n2 = speciesCounts[sp2];
-
-            if (i === j) {
-                matrix[sp1][sp1] = { obs: n1 };
-                continue;
-            }
-
-            const obs = locationKeys.filter(loc => locations[loc].has(sp1) && locations[loc].has(sp2)).length;
-            const exp = (n1 * n2) / N;
-            let p_lt = 0, p_gt = 0;
-
-            const max_k = Math.min(n1, n2);
-            for (let k = 0; k <= max_k; k++) {
-                const logP = logHypergeometricProb(k, N, n1, n2);
-                const prob = Math.exp(logP) + Number.EPSILON;
-                if (k <= obs) p_lt += prob;
-                if (k >= obs) p_gt += prob;
-            }
-
-            let effect: CooccurrenceResult['effect'] = 'random';
-            const alpha = 0.05;
-            if (obs > exp && p_gt < alpha) {
-                effect = 'positive';
-            } else if (obs < exp && p_lt < alpha) {
-                effect = 'negative';
-            }
-
-            const result: CooccurrenceResult = { obs, exp, p_lt: Math.min(p_lt, 1), p_gt: Math.min(p_gt, 1), effect };
-            matrix[sp1][sp2] = result;
-            matrix[sp2][sp1] = result;
-        }
-    }
+    result.species.forEach(sp => {
+        matrix[sp] = { [sp]: { obs: result.prevalence[sp] } };
+    });
+    result.pairs.forEach(pair => {
+        const cell: CooccurrenceResult = {
+            obs: pair.obs,
+            exp: pair.exp,
+            p_lt: pair.pLower,
+            p_gt: pair.pUpper,
+            p_adj: pair.pAdj,
+            tested: pair.tested,
+            effect: pair.effect,
+        };
+        matrix[pair.speciesA][pair.speciesB] = cell;
+        matrix[pair.speciesB][pair.speciesA] = cell;
+    });
     return matrix;
 };
 
@@ -511,36 +474,19 @@ export function calculateEcologicalParameters(allSpeciesData: SpeciesData[]): Si
             results[siteName] = { 
                 speciesRichness: 0, individuals: 0, genusRichness: 0, familyRichness: 0,
                 sampleCoverage: 0, shannon: 0, simpsonDominance: 0, pielouEvenness: 0,
-                margalefRichness: 0, chao1: 0
+                margalefRichness: 0, chao1: 0, chao1Se: 0, chao1Lower: 0, chao1Upper: 0
             };
             continue;
         }
 
-        let shannon = 0;
-        let simpsonDominance = 0;
-        Object.values(speciesCounts).forEach(count => {
-            const pi = count / N;
-            if (pi > 0) {
-                shannon -= pi * Math.log(pi);
-                simpsonDominance += pi * pi;
-            }
-        });
-
+        const abundances = Object.values(speciesCounts);
+        const shannon = shannonEntropy(abundances);
+        const simpsonDominance = simpsonDominanceIndex(abundances);
         const pielouEvenness = S > 1 ? shannon / Math.log(S) : 1;
-
-        const singletons = Object.values(speciesCounts).filter(c => c === 1).length;
-        const doubletons = Object.values(speciesCounts).filter(c => c === 2).length;
-        const sampleCoverage = N > 0 ? 1 - (singletons / N) : 0;
-        
+        const sampleCoverage = coverageEstimate(abundances);
         const margalefRichness = N > 1 ? (S - 1) / Math.log(N) : 0;
-
-        let chao1;
-        if (doubletons > 0) {
-            chao1 = S + (Math.pow(singletons, 2)) / (2 * doubletons); 
-        } else {
-            chao1 = S + (singletons * (singletons - 1)) / 2; 
-        }
-        chao1 = Math.max(S, chao1); 
+        const chao = chao1(abundances);
+        const chao1Value = chao.estimate;
 
         results[siteName] = {
             speciesRichness: S,
@@ -552,7 +498,10 @@ export function calculateEcologicalParameters(allSpeciesData: SpeciesData[]): Si
             simpsonDominance,
             pielouEvenness,
             margalefRichness,
-            chao1,
+            chao1: chao1Value,
+            chao1Se: chao.se,
+            chao1Lower: chao.lcl,
+            chao1Upper: chao.ucl,
         };
     }
     return results;
@@ -700,123 +649,37 @@ export function runStructuralAnalysis(allSpeciesData: SpeciesData[], plotInfo: P
 
 
 /**
- * Performs an Indicator Value (IndVal) analysis. Can be run for all sites or a specific target site.
- * @param speciesData Array of processed species data.
- * @param targetSite Optional. If provided, runs a 2-group analysis (targetSite vs. 'Other').
- * @returns An IndVal result object.
+ * Indicator species analysis (IndVal; Dufrêne & Legendre 1997; De Cáceres & Legendre 2009).
+ * Groups are vegetation types (or, with targetSite, that type vs. all others). 999 seeded permutations.
  */
 export function runIndValAnalysis(speciesData: SpeciesData[], targetSite?: string): IndValResult {
-    if (speciesData.length === 0) return {};
+    const community = buildCommunity(speciesData);
+    if (community.plots.length === 0) return {};
+    const groups = community.groups.map(g => (targetSite ? (g === targetSite ? targetSite : OTHER_GROUP) : g));
+    if (new Set(groups).size < 2) return {};
 
-    const plotData: { [plotKey: string]: { site: string; species: { [speciesName: string]: number } } } = {};
-    const siteToPlotMap: { [siteName: string]: string[] } = {};
-    const allSpecies = new Set<string>();
-
-    speciesData.forEach(row => {
-        const species = row['N_Científico (Abreviado)'] as string;
-        const site = row['Tipo de vegetación'] as string;
-        const plot = row['Parcela'] as string;
-        if (!species || !site || !plot) return;
-
-        const plotKey = `${site}-${plot}`;
-        if (!plotData[plotKey]) {
-            plotData[plotKey] = { site, species: {} };
-        }
-        
-        const group = targetSite ? (site === targetSite ? targetSite : 'Other') : site;
-
-        if (!siteToPlotMap[group]) {
-            siteToPlotMap[group] = [];
-        }
-        if (!siteToPlotMap[group].includes(plotKey)) {
-            siteToPlotMap[group].push(plotKey);
-        }
-
-        plotData[plotKey].species[species] = (plotData[plotKey].species[species] || 0) + 1; 
-        allSpecies.add(species);
-    });
-    
-    const sortedSpecies = Array.from(allSpecies).sort();
-    const siteGroups = Object.keys(siteToPlotMap).sort();
-    const allPlotKeys = Object.keys(plotData);
-    if (siteGroups.length < 2) return {};
-
+    const out = indicatorSpecies(community.abundance, community.species, groups, { nPermutations: 999, seed: DEFAULT_SEED });
     const results: IndValResult = {};
-
-    sortedSpecies.forEach(species => {
-        results[species] = {};
-        const totalAbundanceAcrossGroups: { [site: string]: number } = {};
-        let sumOfMeanAbundances = 0;
-
-        siteGroups.forEach(site => {
-            const plotsInGroup = siteToPlotMap[site];
-            const totalAbundanceInGroup = plotsInGroup.reduce((sum, plotKey) => sum + (plotData[plotKey].species[species] || 0), 0);
-            totalAbundanceAcrossGroups[site] = plotsInGroup.length > 0 ? totalAbundanceInGroup / plotsInGroup.length : 0;
-            sumOfMeanAbundances += totalAbundanceAcrossGroups[site];
-        });
-
-        siteGroups.forEach(site => {
-            const plotsInGroup = siteToPlotMap[site];
-            const specificity = sumOfMeanAbundances > 0 ? totalAbundanceAcrossGroups[site] / sumOfMeanAbundances : 0;
-            const plotsWithSpecies = plotsInGroup.filter(plotKey => (plotData[plotKey].species[species] || 0) > 0).length;
-            const fidelity = plotsInGroup.length > 0 ? plotsWithSpecies / plotsInGroup.length : 0;
-            
-            const indval = specificity * fidelity * 100;
-            results[species][site] = { indval, pvalue: 1.0 };
-        });
-    });
-
-    const numPermutations = 999;
-    const originalSiteLabels = allPlotKeys.map(key => targetSite ? (plotData[key].site === targetSite ? targetSite : 'Other') : plotData[key].site);
-
-    for (let p = 0; p < numPermutations; p++) {
-        const shuffledSiteLabels = [...originalSiteLabels].sort(() => 0.5 - Math.random());
-        const shuffledSiteToPlotMap: { [siteName: string]: string[] } = {};
-        allPlotKeys.forEach((plotKey, i) => {
-            const shuffledSite = shuffledSiteLabels[i];
-            if (!shuffledSiteToPlotMap[shuffledSite]) {
-                shuffledSiteToPlotMap[shuffledSite] = [];
-            }
-            shuffledSiteToPlotMap[shuffledSite].push(plotKey);
-        });
-
-        sortedSpecies.forEach(species => {
-            let sumOfMeanAbundances = 0;
-            const totalAbundanceAcrossGroups: { [site: string]: number } = {};
-            
-            siteGroups.forEach(site => {
-                const plotsInGroup = shuffledSiteToPlotMap[site] || [];
-                const totalAbundanceInGroup = plotsInGroup.reduce((sum, plotKey) => sum + (plotData[plotKey].species[species] || 0), 0);
-                totalAbundanceAcrossGroups[site] = plotsInGroup.length > 0 ? totalAbundanceInGroup / plotsInGroup.length : 0;
-                sumOfMeanAbundances += totalAbundanceAcrossGroups[site];
-            });
-
-            siteGroups.forEach(site => {
-                 const plotsInGroup = shuffledSiteToPlotMap[site] || [];
-                 const specificity = sumOfMeanAbundances > 0 ? totalAbundanceAcrossGroups[site] / sumOfMeanAbundances : 0;
-                 const plotsWithSpecies = plotsInGroup.filter(plotKey => (plotData[plotKey].species[species] || 0) > 0).length;
-                 const fidelity = plotsInGroup.length > 0 ? plotsWithSpecies / plotsInGroup.length : 0;
-                 const permutedIndVal = specificity * fidelity * 100;
-                 
-                 if (permutedIndVal >= results[species][site].indval) {
-                     results[species][site].pvalue += 1;
-                 }
-            });
-        });
-    }
-
-    sortedSpecies.forEach(species => {
-        siteGroups.forEach(site => {
-            const count = results[species][site].pvalue;
-            results[species][site] = {
-                indval: parseFloat(results[species][site].indval.toFixed(2)),
-                pvalue: parseFloat((count / (numPermutations + 1)).toFixed(3)),
+    out.species.forEach(sp => {
+        results[sp.species] = {};
+        out.groups.forEach(g => {
+            const v = sp.groups[g];
+            const isBest = g === sp.bestGroup;
+            results[sp.species][g] = {
+                indval: parseFloat(v.indvalPct.toFixed(2)),
+                stat: parseFloat(v.stat.toFixed(4)),
+                A: parseFloat(v.A.toFixed(4)),
+                B: parseFloat(v.B.toFixed(4)),
+                isBest,
+                pvalue: isBest ? parseFloat(sp.p.toFixed(3)) : null,
+                pAdj: isBest ? parseFloat(sp.pAdj.toFixed(3)) : null,
             };
         });
     });
-
     return results;
 }
+
+export const OTHER_GROUP = 'Otros';
 
 
 /**
@@ -896,220 +759,153 @@ export function calculateCorrelationMatrix(
 }
 
 /**
- * Groups a set of 2D points into a specified number of clusters using the k-means algorithm.
- * @param points An array of CCACoordinates to cluster.
- * @param k The number of clusters to form.
- * @returns The same array of points with a `cluster` property added to each.
+ * Canonical Correspondence Analysis computed numerically (equivalent to vegan::cca), with a
+ * 999-permutation test, VIFs and 95% ellipses of plots by vegetation type.
+ * Species abundances = number of individuals per plot. Only numeric environmental variables are used;
+ * plots without species or with missing environmental values are excluded and reported.
  */
-const clusterPoints = (points: CCACoordinates[], k: number): CCACoordinates[] => {
-    if (points.length < k) {
-        return points.map(p => ({ ...p, cluster: 0 }));
-    }
-
-    let centroids = points.slice().sort(() => 0.5 - Math.random()).slice(0, k).map(p => ({ x: p.x, y: p.y }));
-    
-    let assignments = new Array(points.length).fill(0);
-    const MAX_ITERATIONS = 50;
-
-    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-        let changed = false;
-
-        points.forEach((point, i) => {
-            let minDistance = Infinity;
-            let closestCentroidIndex = 0;
-            centroids.forEach((centroid, j) => {
-                const distance = Math.sqrt(Math.pow(point.x - centroid.x, 2) + Math.pow(point.y - centroid.y, 2));
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    closestCentroidIndex = j;
-                }
-            });
-            if (assignments[i] !== closestCentroidIndex) {
-                assignments[i] = closestCentroidIndex;
-                changed = true;
-            }
-        });
-
-        if (!changed) break;
-
-        const newCentroidsData: { xSum: number, ySum: number, count: number }[] = Array(k).fill(0).map(() => ({ xSum: 0, ySum: 0, count: 0 }));
-        points.forEach((point, i) => {
-            const clusterIndex = assignments[i];
-            newCentroidsData[clusterIndex].xSum += point.x;
-            newCentroidsData[clusterIndex].ySum += point.y;
-            newCentroidsData[clusterIndex].count += 1;
-        });
-
-        centroids = newCentroidsData.map((c, i) => {
-            if (c.count > 0) {
-                return { x: c.xSum / c.count, y: c.ySum / c.count };
-            }
-            return points[Math.floor(Math.random() * points.length)];
-        });
-    }
-
-    return points.map((p, i) => ({ ...p, cluster: assignments[i] }));
-};
-
-
-/**
- * Calculates confidence ellipses from 2D data points by first clustering them.
- * @param points An array of CCACoordinates. A `cluster` property will be added.
- * @returns An array of EllipseData objects.
- */
-export function calculateEllipsesFromClusteredPoints(points: CCACoordinates[]): EllipseData[] {
-    const K_CLUSTERS = 3; 
-    const validPoints = (points || []).filter(p => p && typeof p.x === 'number' && Number.isFinite(p.x) && typeof p.y === 'number' && Number.isFinite(p.y));
-    if (validPoints.length < K_CLUSTERS) return [];
-
-    const clusteredPoints = clusterPoints(validPoints, K_CLUSTERS);
-
-    const clusters: { [key: number]: CCACoordinates[] } = {};
-    clusteredPoints.forEach(p => {
-        if (p.cluster === undefined) return;
-        if (!clusters[p.cluster]) clusters[p.cluster] = [];
-        clusters[p.cluster].push(p);
+export function runCCAAnalysis(speciesData: SpeciesData[], siteData: SiteData): SingleCCAPlotData {
+    const empty = (notes: string[]): SingleCCAPlotData => ({
+        biplot: { species: [], vectors: [], sites: [] },
+        correlationMatrix: {},
+        notes,
     });
+    const community = buildCommunity(speciesData);
+    const envPlots = Object.keys(siteData);
+    if (envPlots.length === 0) return empty(['Sin datos ambientales: el CCA requiere la tabla de características del sitio.']);
 
-    const ellipses: EllipseData[] = [];
-    const confidenceLevel = 5.991; 
+    // Numeric variables only
+    const allVars = Array.from(new Set(envPlots.flatMap(p => Object.keys(siteData[p] || {})))).sort();
+    const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+    const numericVars = allVars.filter(v => envPlots.some(p => isNum(siteData[p]?.[v])));
+    const excludedVariables = allVars.filter(v => !numericVars.includes(v));
 
-    for (const clusterId in clusters) {
-        const clusterPoints = clusters[clusterId];
-        if (clusterPoints.length < 2) continue;
+    const plotIdx = community.plots
+        .map((p, i) => ({ p, i }))
+        .filter(({ p }) => siteData[p] !== undefined);
+    const complete = plotIdx.filter(({ p }) => numericVars.every(v => isNum(siteData[p][v])));
+    const excludedPlots = [
+        ...community.plots.filter(p => siteData[p] === undefined),
+        ...plotIdx.filter(o => !complete.includes(o)).map(o => o.p),
+    ];
 
-        const n = clusterPoints.length;
-        const meanX = clusterPoints.reduce((sum, p) => sum + p.x, 0) / n;
-        const meanY = clusterPoints.reduce((sum, p) => sum + p.y, 0) / n;
+    // Drop constant variables (no information) and species absent from the retained plots
+    const vars = numericVars.filter(v => {
+        const vals = complete.map(({ p }) => siteData[p][v] as number);
+        return vals.length > 0 && Math.max(...vals) - Math.min(...vals) > 0;
+    });
+    excludedVariables.push(...numericVars.filter(v => !vars.includes(v)));
+    const Yfull = complete.map(({ i }) => community.abundance[i]);
+    const keepSp = community.species.map((_, j) => Yfull.some(row => row[j] > 0));
+    const speciesNames = community.species.filter((_, j) => keepSp[j]);
+    const Y = Yfull.map(row => row.filter((_, j) => keepSp[j]));
 
-        let covXX = 0, covXY = 0, covYY = 0;
-        clusterPoints.forEach(p => {
-            covXX += (p.x - meanX) * (p.x - meanX);
-            covXY += (p.x - meanX) * (p.y - meanY);
-            covYY += (p.y - meanY) * (p.y - meanY);
-        });
-        covXX /= (n - 1);
-        covXY /= (n - 1);
-        covYY /= (n - 1);
-
-        const trace = covXX + covYY;
-        const det = covXX * covYY - covXY * covXY;
-        
-        const lambda1 = trace / 2 + Math.sqrt(Math.max(0, (trace * trace) / 4 - det));
-        const lambda2 = trace / 2 - Math.sqrt(Math.max(0, (trace * trace) / 4 - det));
-
-        let rx = Math.sqrt(Math.max(0, confidenceLevel * (Number.isFinite(lambda1) ? lambda1 : 0)));
-        let ry = Math.sqrt(Math.max(0, confidenceLevel * (Number.isFinite(lambda2) ? lambda2 : 0)));
-        if (isNaN(rx)) rx = 0;
-        if (isNaN(ry)) ry = 0;
-
-        let angle = 0;
-        if (covXY !== 0 && Number.isFinite(covXY) && Number.isFinite(lambda1) && Number.isFinite(covXX)) {
-            angle = Math.atan2(lambda1 - covXX, covXY);
-        } else if (covXX < covYY) {
-            angle = Math.PI / 2;
-        }
-        
-        ellipses.push({
-            cx: Number.isFinite(meanX) ? meanX : 0,
-            cy: Number.isFinite(meanY) ? meanY : 0,
-            rx: rx,
-            ry: ry,
-            angle: angle,
-            cluster: parseInt(clusterId, 10),
-        });
+    const notes: string[] = [];
+    if (excludedPlots.length) notes.push(`Parcelas excluidas (sin datos de especies o con datos ambientales incompletos): ${excludedPlots.join(', ')}.`);
+    if (excludedVariables.length) notes.push(`Variables excluidas (no numéricas o constantes): ${excludedVariables.join(', ')}.`);
+    if (vars.length === 0) return empty([...notes, 'No hay variables ambientales numéricas con variación.']);
+    if (complete.length < 3 || speciesNames.length < 2) return empty([...notes, 'Se necesitan al menos 3 parcelas y 2 especies con datos completos.']);
+    if (vars.length >= complete.length - 1) {
+        notes.push(`Atención: hay ${vars.length} variables para ${complete.length} parcelas. Con tantas variables el CCA queda casi sin restricciones y el test no es fiable; reduzca el número de variables.`);
     }
 
-    return ellipses;
+    const siteNames = complete.map(({ p }) => p);
+    const groups = complete.map(({ i }) => community.groups[i]);
+    const input = {
+        Y,
+        X: complete.map(({ p }) => vars.map(v => siteData[p][v] as number)),
+        siteNames,
+        speciesNames,
+        envNames: vars,
+    };
+    const res = cca(input);
+    const test = ccaPermutationTest(input, { nPermutations: 999, seed: DEFAULT_SEED });
+
+    // Label the 15 most abundant species; the rest are drawn as unlabeled points
+    const labeled = new Set(
+        res.species.slice().sort((a, b) => b.weight - a.weight).slice(0, 15).map(s => s.name),
+    );
+    const species: CCACoordinates[] = res.species.map(s => ({ name: s.name, x: s.x, y: s.y, isBackground: !labeled.has(s.name) }));
+    const sites: CCACoordinates[] = res.sitesWA.map((s, k) => ({ name: s.name, x: s.x, y: s.y, group: groups[k] }));
+    const ellipses = new Set(groups).size > 1
+        ? groupEllipses(res.sitesWA, groups).map(e => ({ cx: e.cx, cy: e.cy, rx: e.rx, ry: e.ry, angle: e.angle, group: e.group }))
+        : [];
+
+    if (res.rank < 2) notes.push('Solo hay un eje restringido (una variable ambiental): el eje vertical del gráfico es nulo.');
+
+    return {
+        biplot: { species, vectors: res.biplot.map(b => ({ name: b.name, x: b.x, y: b.y })), sites },
+        correlationMatrix: calculateCorrelationMatrix(speciesData, siteData),
+        ellipses,
+        varianceExplained: [res.axisPercent[0] ?? 0, res.axisPercent[1] ?? 0],
+        stats: {
+            nSites: siteNames.length,
+            nSpecies: speciesNames.length,
+            totalInertia: res.totalInertia,
+            constrainedInertia: res.constrainedInertia,
+            constrainedPercent: (100 * res.constrainedInertia) / res.totalInertia,
+            eigenvalues: res.eigenvalues,
+            axisPercent: res.axisPercent,
+            F: test.F,
+            df: test.df,
+            dfResidual: test.dfResidual,
+            pValue: test.p,
+            nPermutations: test.nPermutations,
+            seed: test.seed,
+            vif: res.vif,
+            excludedPlots,
+            excludedVariables,
+        },
+        notes,
+    };
 }
 
 /**
- * Calculates Rarefaction (Interpolation) and Extrapolation curves using analytical methods.
- * @param allSpeciesData Array of all processed species data.
- * @returns RarefactionData object with observed, extrapolated, and CI curves per site.
+ * Rarefaction and extrapolation of Hill numbers (q = 0, 1, 2) per vegetation type, following iNEXT
+ * (Chao et al. 2014): extrapolation up to twice the observed sample size, 95% CI from 100 seeded
+ * bootstrap replicates.
  */
 export function calculateRarefactionData(allSpeciesData: SpeciesData[]): RarefactionData {
     const results: RarefactionData = {};
-    const sites = Array.from(new Set(allSpeciesData.map(d => d['Tipo de vegetación'] as string).filter(Boolean)));
+    const sites = Array.from(new Set(allSpeciesData.map(d => d['Tipo de vegetación'] as string).filter(Boolean))).sort();
 
     sites.forEach(site => {
-        const siteData = allSpeciesData.filter(d => d['Tipo de vegetación'] === site);
         const counts: Record<string, number> = {};
-        siteData.forEach(d => {
-             const sp = d['N_Científico (Abreviado)'] as string;
-             if(sp) counts[sp] = (counts[sp] || 0) + 1;
+        allSpeciesData.forEach(d => {
+            if (d['Tipo de vegetación'] !== site) return;
+            const sp = d['N_Científico (Abreviado)'] as string;
+            if (sp) counts[sp] = (counts[sp] || 0) + 1;
         });
-        
-        const N = siteData.length; 
-        const S_obs = Object.keys(counts).length;
-        const countsValues = Object.values(counts);
+        const values = Object.values(counts);
+        const n = values.reduce((a, b) => a + b, 0);
+        if (n < 2) return;
+        const res = rarefactionExtrapolation(values, { nBoot: 100, seed: DEFAULT_SEED });
 
-        const observedCurve: RarefactionPoint[] = [];
-        const step = Math.max(1, Math.floor(N / 20));
-        const steps = [];
-        for(let k=1; k < N; k+=step) steps.push(k);
-        steps.push(N); 
-
-        steps.forEach(k => {
-            let sumProbNotInSample = 0;
-            countsValues.forEach(Ni => {
-                if (N - Ni >= k) {
-                     const logProb = logCombinations(N - Ni, k) - logCombinations(N, k);
-                     sumProbNotInSample += Math.exp(logProb);
-                }
-            });
-            observedCurve.push({ x: k, y: S_obs - sumProbNotInSample });
-        });
-
-        const f1 = countsValues.filter(c => c === 1).length;
-        const f2 = countsValues.filter(c => c === 2).length;
-        
-        let f0 = 0;
-        if (f2 > 0) {
-            f0 = (f1 * f1) / (2 * f2);
-        } else {
-            f0 = (f1 * (f1 - 1)) / 2;
-        }
-        
-        const extrapolatedCurve: RarefactionPoint[] = [];
-        const m_max = N; 
-        const ext_step = Math.max(1, Math.floor(m_max / 10));
-        
-        for(let m=0; m <= m_max; m+=ext_step) {
-            let y_ext = S_obs;
-            if (f1 > 0) {
-                 if(f0 > 0) {
-                    y_ext = S_obs + f0 * (1 - Math.pow(1 - f1/(N*f0 + f1), m));
-                 }
-            }
-            extrapolatedCurve.push({ x: N + m, y: y_ext });
-        }
-        
-        const lowerCI: RarefactionPoint[] = [];
-        const upperCI: RarefactionPoint[] = [];
-        
-        [...observedCurve, ...extrapolatedCurve].forEach(p => {
-             const ciWidth = (p.y * 0.05) + (p.x > N ? (p.x-N)/N * 2 : 0); 
-             lowerCI.push({ x: p.x, y: Math.max(0, p.y - ciWidth) });
-             upperCI.push({ x: p.x, y: p.y + ciWidth });
-        });
-
-        results[site] = {
-            observed: {
-                point: { x: N, y: S_obs },
-                curve: observedCurve
-            },
-            extrapolated: {
-                curve: extrapolatedCurve
-            },
-            confidenceInterval: {
-                lower: lowerCI,
-                upper: upperCI
-            }
+        const toCurve = (q: 0 | 1 | 2): RarefactionCurve => {
+            const pts = res.curves.find(c => c.q === q)!.points;
+            const obs = pts.find(p => p.method === 'observed')!;
+            return {
+                observed: {
+                    point: { x: obs.m, y: obs.qD },
+                    curve: pts.filter(p => p.m <= n).map(p => ({ x: p.m, y: p.qD })),
+                },
+                extrapolated: { curve: pts.filter(p => p.m >= n).map(p => ({ x: p.m, y: p.qD })) },
+                confidenceInterval: {
+                    lower: pts.map(p => ({ x: p.m, y: p.lcl })),
+                    upper: pts.map(p => ({ x: p.m, y: p.ucl })),
+                },
+            };
         };
-
+        results[site] = {
+            n: res.n,
+            S: res.S,
+            byOrder: { '0': toCurve(0), '1': toCurve(1), '2': toCurve(2) },
+            coverage: res.curves[0].points.map(p => ({ m: p.m, SC: p.SC, lcl: p.scLcl, ucl: p.scUcl })),
+            nBoot: res.nBoot,
+            seed: res.seed,
+        };
     });
-    
+
     return results;
 }
 

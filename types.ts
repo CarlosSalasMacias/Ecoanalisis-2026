@@ -37,6 +37,8 @@ export interface CooccurrenceResult {
   exp: number; // Expected co-occurrences
   p_lt: number; // Probability of observed or fewer
   p_gt: number; // Probability of observed or greater
+  p_adj: number | null; // Benjamini–Hochberg adjusted p (direction of the observed deviation); null if not tested
+  tested: boolean; // false when expected co-occurrence < 1 (not evaluated, as in the cooccur package)
   effect: 'positive' | 'negative' | 'random';
 }
 
@@ -119,12 +121,12 @@ export interface CCACoordinates {
   name: string;
   x: number;
   y: number;
-  cluster?: number;
-  isBackground?: boolean; // New flag to indicate if this point should be rendered without a label
+  group?: string; // vegetation type of a site point
+  isBackground?: boolean; // point drawn without a label
 }
 
 /**
- * Represents the geometric properties of a calculated ellipse for clustering.
+ * 95% dispersion ellipse of the site scores of one vegetation type (vegan::ordiellipse, kind = "sd").
  */
 export interface EllipseData {
     cx: number;
@@ -132,7 +134,7 @@ export interface EllipseData {
     rx: number;
     ry: number;
     angle: number;
-    cluster: number;
+    group: string;
 }
 
 /**
@@ -148,14 +150,37 @@ export interface CorrelationMatrix {
  * Holds all data required to render the CCA plots for a single analysis.
  */
 export interface SingleCCAPlotData {
-  isPlaceholder?: boolean;
   biplot: {
     species: CCACoordinates[];
     vectors: CCACoordinates[];
+    sites?: CCACoordinates[];
   };
   correlationMatrix: CorrelationMatrix;
   ellipses?: EllipseData[];
+  /** % of total inertia explained by CCA1 and CCA2 */
   varianceExplained?: [number, number];
+  stats?: CCAStats;
+  /** Reasons why the CCA could not be computed, or data that were excluded */
+  notes?: string[];
+}
+
+export interface CCAStats {
+  nSites: number;
+  nSpecies: number;
+  totalInertia: number;
+  constrainedInertia: number;
+  constrainedPercent: number;
+  eigenvalues: number[];
+  axisPercent: number[];
+  F: number;
+  df: number;
+  dfResidual: number;
+  pValue: number;
+  nPermutations: number;
+  seed: number;
+  vif: Record<string, number>;
+  excludedPlots: string[];
+  excludedVariables: string[];
 }
 
 /**
@@ -214,8 +239,19 @@ export interface RarefactionCurve {
 /**
  * Holds all rarefaction curve data, keyed by site name.
  */
+export interface SiteRarefaction {
+  n: number;
+  S: number;
+  /** Curves for Hill numbers of order q = 0 (richness), 1 (exp Shannon) and 2 (inverse Simpson) */
+  byOrder: Record<'0' | '1' | '2', RarefactionCurve>;
+  /** Sample coverage at each sample size (shared by all orders) */
+  coverage: { m: number; SC: number; lcl: number; ucl: number }[];
+  nBoot: number;
+  seed: number;
+}
+
 export interface RarefactionData {
-  [siteName: string]: RarefactionCurve;
+  [siteName: string]: SiteRarefaction;
 }
 
 /**
@@ -251,8 +287,13 @@ export interface SiteStructuralAnalysis {
  * Holds the calculated Indicator Value (IndVal) metrics for a species in a site group.
  */
 export interface IndValMetrics {
-  indval: number; // Indicator Value percentage
-  pvalue: number; // Significance p-value from permutation test
+  indval: number; // Dufrêne & Legendre IndVal (%) = 100·A·B
+  stat: number; // sqrt(A·B), statistic of indicspecies::multipatt (IndVal.g)
+  A: number; // specificity
+  B: number; // fidelity
+  isBest: boolean; // group where the species reaches its maximum value (the one tested)
+  pvalue: number | null; // permutation p-value; only for the best group
+  pAdj: number | null; // Benjamini–Hochberg adjusted p-value across species
 }
 
 /**
@@ -318,12 +359,15 @@ export interface EcologicalParameterSet {
   individuals: number;
   genusRichness: number;
   familyRichness: number;
-  sampleCoverage: number; // SC*
+  sampleCoverage: number; // Chao & Jost (2012) sample coverage
   shannon: number;
   simpsonDominance: number;
   pielouEvenness: number;
   margalefRichness: number;
   chao1: number;
+  chao1Se: number;
+  chao1Lower: number;
+  chao1Upper: number;
 }
 
 export interface SiteEcologicalParameters {

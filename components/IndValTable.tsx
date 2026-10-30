@@ -48,14 +48,21 @@ const IndValTable: React.FC<IndValTableProps> = ({ analysisData, sites, selected
     const siteOptions = ['General', ...sites];
 
     const handleExport = () => {
-        const headers = [t.speciesColumn, ...currentSites.flatMap(site => [`${site}_${t.indValValue}`, `${site}_${t.pValue}`])];
+        const headers = [
+            t.speciesColumn,
+            ...currentSites.flatMap(site => [`${site}_IndVal_pct`, `${site}_A`, `${site}_B`, `${site}_sqrtAB`]),
+            t.indValBestGroup, 'p', 'p_adj_FDR',
+        ];
         const rows = species.map(sp => {
             const rowData: (string | number)[] = [sp];
+            let best = '';
             currentSites.forEach(site => {
-                const metrics = analysisData[sp]?.[site];
-                rowData.push(metrics?.indval ?? 'N/A');
-                rowData.push(metrics?.pvalue ?? 'N/A');
+                const m = analysisData[sp]?.[site];
+                rowData.push(m?.indval ?? 'NA', m?.A ?? 'NA', m?.B ?? 'NA', m?.stat ?? 'NA');
+                if (m?.isBest) best = site;
             });
+            const bm = best ? analysisData[sp][best] : undefined;
+            rowData.push(best || 'NA', bm?.pvalue ?? 'NA', bm?.pAdj ?? 'NA');
             return rowData;
         });
         exportDataToCSV([headers, ...rows], `indicator-species-analysis-${selectedSite}.csv`);
@@ -111,7 +118,7 @@ const IndValTable: React.FC<IndValTableProps> = ({ analysisData, sites, selected
                             <tr>
                                 <th scope="col" rowSpan={2} className="p-3 font-semibold align-bottom border-b-2 border-gray-200 sticky left-0 bg-gray-100 z-10">{t.speciesColumn}</th>
                                 {currentSites.map(site => (
-                                    <th key={site} scope="col" colSpan={2} className="p-3 font-semibold text-center border-b-2 border-l border-gray-200">{site}</th>
+                                    <th key={site} scope="col" colSpan={3} className="p-3 font-semibold text-center border-b-2 border-l border-gray-200">{site}</th>
                                 ))}
                             </tr>
                             <tr>
@@ -119,6 +126,7 @@ const IndValTable: React.FC<IndValTableProps> = ({ analysisData, sites, selected
                                     <React.Fragment key={site}>
                                         <th scope="col" className="p-3 font-semibold text-center bg-gray-50 border-l border-gray-200">{t.indValValue}</th>
                                         <th scope="col" className="p-3 font-semibold text-center bg-gray-50">{t.pValue}</th>
+                                        <th scope="col" className="p-3 font-semibold text-center bg-gray-50">{t.pAdjValue}</th>
                                     </React.Fragment>
                                 ))}
                             </tr>
@@ -131,16 +139,20 @@ const IndValTable: React.FC<IndValTableProps> = ({ analysisData, sites, selected
                                         {currentSites.map(site => {
                                             const metrics = analysisData[s]?.[site];
                                             if (!metrics) {
-                                                return <React.Fragment key={site}><td className="border-l"></td><td></td></React.Fragment>;
+                                                return <React.Fragment key={site}><td className="border-l"></td><td></td><td></td></React.Fragment>;
                                             }
-                                            const isSignificant = metrics.pvalue < 0.05;
+                                            const isSignificant = metrics.isBest && metrics.pvalue !== null && metrics.pvalue < 0.05;
+                                            const bestCls = metrics.isBest ? 'underline decoration-dotted' : 'text-gray-400';
                                             return (
                                                 <React.Fragment key={site}>
                                                     <td className={`p-3 text-center font-mono ${isSignificant ? 'bg-blue-50 text-primary font-bold' : ''} border-l border-gray-200`}>
-                                                        {metrics.indval}
+                                                        <span className={bestCls} title={`A = ${metrics.A}, B = ${metrics.B}, √(A·B) = ${metrics.stat}`}>{metrics.indval}</span>
                                                     </td>
                                                     <td className={`p-3 text-center font-mono ${isSignificant ? 'bg-blue-50' : ''}`}>
-                                                        {metrics.pvalue}
+                                                        {metrics.pvalue ?? '—'}
+                                                    </td>
+                                                    <td className={`p-3 text-center font-mono ${isSignificant ? 'bg-blue-50' : ''}`}>
+                                                        {metrics.pAdj ?? '—'}
                                                     </td>
                                                 </React.Fragment>
                                             );

@@ -176,6 +176,8 @@ const EcologicalParametersTable: React.FC<EcologicalParametersTableProps> = ({ d
     { key: 'pielouEvenness', label: t.pielouEvennessIndex, format: (v) => v.toFixed(3) },
     { key: 'margalefRichness', label: t.margalefRichnessIndex, format: (v) => v.toFixed(3) },
     { key: 'chao1', label: t.chao1Index, format: (v) => v.toFixed(3) },
+    { key: 'chao1Lower', label: `${t.chao1CI} (LCL)`, format: (v) => v.toFixed(3) },
+    { key: 'chao1Upper', label: `${t.chao1CI} (UCL)`, format: (v) => v.toFixed(3) },
   ];
 
   const indexOptions: { key: keyof EcologicalParameterSet; label: string }[] = parameters.map(p => ({

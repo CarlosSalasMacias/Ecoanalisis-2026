@@ -135,171 +135,172 @@ const useLabelPositions = (
 };
 
 
-const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabels: boolean, showConnectors: boolean, showEllipses: boolean, svgRef: React.RefObject<SVGSVGElement> }> = ({ data, palette, showLabels, showConnectors, showEllipses, svgRef }) => {
-    const { species, vectors } = data.biplot;
-    const allPoints = [...species, ...vectors];
+const SITE_SHAPES = ['circle', 'triangle', 'square', 'diamond'] as const;
+
+const SiteMarker: React.FC<{ shape: typeof SITE_SHAPES[number]; cx: number; cy: number; r: number; fill: string }> = ({ shape, cx, cy, r, fill }) => {
+    switch (shape) {
+        case 'triangle':
+            return <path d={`M ${cx} ${cy - r * 1.2} L ${cx - r * 1.1} ${cy + r * 0.8} L ${cx + r * 1.1} ${cy + r * 0.8} Z`} fill={fill} stroke="white" strokeWidth="0.8" />;
+        case 'square':
+            return <rect x={cx - r} y={cy - r} width={2 * r} height={2 * r} fill={fill} stroke="white" strokeWidth="0.8" />;
+        case 'diamond':
+            return <path d={`M ${cx} ${cy - r * 1.3} L ${cx + r * 1.1} ${cy} L ${cx} ${cy + r * 1.3} L ${cx - r * 1.1} ${cy} Z`} fill={fill} stroke="white" strokeWidth="0.8" />;
+        default:
+            return <circle cx={cx} cy={cy} r={r} fill={fill} stroke="white" strokeWidth="0.8" />;
+    }
+};
+
+const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabels: boolean, showConnectors: boolean, showEllipses: boolean, showSites: boolean, svgRef: React.RefObject<SVGSVGElement> }> = ({ data, palette, showLabels, showConnectors, showEllipses, showSites, svgRef }) => {
+    const t = useTranslations();
+    const { species } = data.biplot;
+    const sites = showSites ? (data.biplot.sites ?? []) : [];
+    const groups = useMemo(() => Array.from(new Set((data.biplot.sites ?? []).map(s => s.group || ''))).sort(), [data]);
     const PLOT_WIDTH = WIDTH - PADDING * 2;
     const PLOT_HEIGHT = HEIGHT - PADDING * 2;
 
-    // --- DYNAMIC SCALING LOGIC ---
+    // Environmental arrows are correlations (|r| ≤ 1). As in vegan's ordiArrowMul, they are multiplied by a
+    // common factor so that the longest arrow reaches 75% of the extent of the plotted scores.
+    const arrowMul = useMemo(() => {
+        const pts = [...species, ...sites];
+        const extent = Math.max(1e-9, ...pts.map(p => Math.max(Math.abs(p.x), Math.abs(p.y))));
+        const longest = Math.max(1e-9, ...data.biplot.vectors.map(v => Math.hypot(v.x, v.y)));
+        return (0.75 * extent) / longest;
+    }, [data, species, sites]);
+    const vectors = useMemo(() => data.biplot.vectors.map(v => ({ ...v, x: v.x * arrowMul, y: v.y * arrowMul })), [data, arrowMul]);
+    const allPoints = useMemo(() => [...species, ...vectors, ...sites], [species, vectors, sites]);
+
     const { scaleX, scaleY, originX, originY } = useMemo(() => {
-        const allFiniteX = allPoints.map(p => p.x).filter(Number.isFinite);
-        const allFiniteY = allPoints.map(p => p.y).filter(Number.isFinite);
-
-        if (allFiniteX.length === 0 || allFiniteY.length === 0) {
-            const fallbackScale = (v: number) => v + WIDTH/2;
-            return { scaleX: fallbackScale, scaleY: fallbackScale, originX: WIDTH/2, originY: HEIGHT/2 };
+        const xs = allPoints.map(p => p.x).filter(Number.isFinite);
+        const ys = allPoints.map(p => p.y).filter(Number.isFinite);
+        if (showEllipses && data.ellipses) {
+            data.ellipses.forEach(e => {
+                const r = Math.max(e.rx, e.ry);
+                xs.push(e.cx - r, e.cx + r);
+                ys.push(e.cy - r, e.cy + r);
+            });
         }
-
-        const minX = Math.min(...allFiniteX);
-        const maxX = Math.max(...allFiniteX);
-        const minY = Math.min(...allFiniteY);
-        const maxY = Math.max(...allFiniteY);
-
-        const rangeX = maxX - minX;
-        const rangeY = maxY - minY;
-
-        const plotWidth = WIDTH - PADDING * 2;
-        const plotHeight = HEIGHT - PADDING * 2;
-
-        const scaleFactor = Math.min(plotWidth / (rangeX || 1), plotHeight / (rangeY || 1)) * 0.9; // 0.9 for extra margin
-
+        if (xs.length === 0 || ys.length === 0) {
+            const fallbackScale = (v: number) => v + WIDTH / 2;
+            return { scaleX: fallbackScale, scaleY: fallbackScale, originX: WIDTH / 2, originY: HEIGHT / 2 };
+        }
+        const minX = Math.min(...xs, 0), maxX = Math.max(...xs, 0);
+        const minY = Math.min(...ys, 0), maxY = Math.max(...ys, 0);
+        const rangeX = maxX - minX, rangeY = maxY - minY;
+        // Same scale on both axes so that distances and angles are preserved (aspect ratio 1).
+        const scaleFactor = Math.min(PLOT_WIDTH / (rangeX || 1), PLOT_HEIGHT / (rangeY || 1)) * 0.95;
         const midX = minX + rangeX / 2;
         const midY = minY + rangeY / 2;
-
-        const sX = (x: number) => PADDING + plotWidth / 2 + (x - midX) * scaleFactor;
-        const sY = (y: number) => PADDING + plotHeight / 2 - (y - midY) * scaleFactor;
-
+        const sX = (x: number) => PADDING + PLOT_WIDTH / 2 + (x - midX) * scaleFactor;
+        const sY = (y: number) => PADDING + PLOT_HEIGHT / 2 - (y - midY) * scaleFactor;
         return { scaleX: sX, scaleY: sY, originX: sX(0), originY: sY(0) };
-    }, [allPoints]);
+    }, [allPoints, data, showEllipses, PLOT_WIDTH, PLOT_HEIGHT]);
 
     const colors = palettes[palette];
-    const vectorColor = palette === 'Greyscale' ? '#000000' : '#333333';
-    const labelPositions = useLabelPositions(allPoints, scaleX, scaleY, showLabels);
-    
-    const renderPoint = (point: CCACoordinates, isVector: boolean) => {
-        const scaledX = scaleX(point.x);
-        const scaledY = scaleY(point.y);
-
-        if (isVector) {
-            return (
-                <g key={point.name} className="group cursor-pointer">
-                    <title>{point.name}</title>
-                    <line x1={originX} y1={originY} x2={scaledX} y2={scaledY} stroke={vectorColor} strokeWidth="2" markerEnd="url(#arrowhead)" />
-                </g>
-            );
-        } else {
-            // Distinct rendering for background (unlabeled) vs significant (labeled) species
-            const isBackground = point.isBackground;
-            const clusterColor = colors[point.cluster === undefined ? 0 : point.cluster % colors.length];
-            
-            return (
-                <g key={`${point.x}-${point.y}-${isBackground ? 'bg' : 'fg'}`} className="group cursor-pointer">
-                    {!isBackground && <title>{point.name}</title>}
-                    {isBackground ? (
-                        // Background point: Small, semi-transparent cross or dot
-                        <circle 
-                            cx={scaledX} 
-                            cy={scaledY} 
-                            r="2" 
-                            fill={clusterColor} 
-                            fillOpacity="0.4"
-                            stroke="none"
-                        />
-                    ) : (
-                        // Significant point: Larger, solid
-                        <circle 
-                            cx={scaledX} 
-                            cy={scaledY} 
-                            r="4" 
-                            fill={clusterColor} 
-                            stroke="white" 
-                            strokeWidth="1"
-                            className="transition-transform group-hover:scale-150" 
-                        />
-                    )}
-                </g>
-            );
-        }
-    };
+    const groupColor = (g?: string) => colors[Math.max(0, groups.indexOf(g || '')) % colors.length];
+    const groupShape = (g?: string) => SITE_SHAPES[Math.max(0, groups.indexOf(g || '')) % SITE_SHAPES.length];
+    const vectorColor = palette === 'Greyscale' ? '#000000' : '#1d4ed8';
+    const labelPoints = useMemo(() => [...species, ...vectors], [species, vectors]);
+    const labelPositions = useLabelPositions(labelPoints, scaleX, scaleY, showLabels);
+    const pct = data.varianceExplained ?? [0, 0];
 
     return (
-        <svg ref={svgRef} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full h-auto">
-             <defs>
+        <svg ref={svgRef} viewBox={`0 0 ${WIDTH} ${HEIGHT + (groups.length > 1 && showSites ? 30 : 0)}`} className="w-full h-auto">
+            <rect x="0" y="0" width={WIDTH} height={HEIGHT + 30} fill="white" />
+            <defs>
                 <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto" markerUnits="strokeWidth">
                     <polygon points="0 0, 10 3.5, 0 7" fill={vectorColor} />
                 </marker>
             </defs>
 
-            {/* Axis Labels */}
-            <text x={PADDING + PLOT_WIDTH / 2} y={HEIGHT - PADDING / 2.5} textAnchor="middle" fontSize="12" className="font-semibold">CCA1</text>
-            <text transform={`rotate(-90, ${PADDING / 2.5}, ${PADDING + PLOT_HEIGHT / 2})`} x={PADDING / 2.5} y={PADDING + PLOT_HEIGHT / 2} textAnchor="middle" fontSize="12" className="font-semibold">CCA2</text>
-            
-            {/* Use scaled origin for axis lines */}
-            <line x1={PADDING} y1={originY} x2={WIDTH - PADDING} y2={originY} stroke="#ccc" />
-            <line x1={originX} y1={PADDING} x2={originX} y2={HEIGHT - PADDING} stroke="#ccc" />
-            
+            <text x={PADDING + PLOT_WIDTH / 2} y={HEIGHT - PADDING / 2.5} textAnchor="middle" fontSize="12" className="font-semibold">{`CCA1 (${pct[0].toFixed(1)} %)`}</text>
+            <text transform={`rotate(-90, ${PADDING / 2.5}, ${PADDING + PLOT_HEIGHT / 2})`} x={PADDING / 2.5} y={PADDING + PLOT_HEIGHT / 2} textAnchor="middle" fontSize="12" className="font-semibold">{`CCA2 (${pct[1].toFixed(1)} %)`}</text>
+
+            <rect x={PADDING} y={PADDING} width={PLOT_WIDTH} height={PLOT_HEIGHT} fill="none" stroke="#9ca3af" />
+            <line x1={PADDING} y1={originY} x2={WIDTH - PADDING} y2={originY} stroke="#d1d5db" strokeDasharray="4 3" />
+            <line x1={originX} y1={PADDING} x2={originX} y2={HEIGHT - PADDING} stroke="#d1d5db" strokeDasharray="4 3" />
+
             {showEllipses && data.ellipses?.map(ellipse => {
-                 const scaledCx = scaleX(ellipse.cx);
-                 const scaledCy = scaleY(ellipse.cy);
-                 // The scaleFactor is unitless (pixels per data unit), so we can apply it directly to radii
-                 const radiusX = Math.abs(ellipse.rx * (scaleX(1) - scaleX(0)));
-                 const radiusY = Math.abs(ellipse.ry * (scaleY(0) - scaleY(1)));
-                 
-                 if (!Number.isFinite(scaledCx) || !Number.isFinite(scaledCy) || !Number.isFinite(radiusX) || !Number.isFinite(radiusY)) {
-                     return null;
-                 }
+                const scaledCx = scaleX(ellipse.cx);
+                const scaledCy = scaleY(ellipse.cy);
+                const radiusX = Math.abs(ellipse.rx * (scaleX(1) - scaleX(0)));
+                const radiusY = Math.abs(ellipse.ry * (scaleY(0) - scaleY(1)));
+                if (![scaledCx, scaledCy, radiusX, radiusY].every(Number.isFinite)) return null;
+                const color = groupColor(ellipse.group);
                 return (
                     <ellipse
-                        key={ellipse.cluster}
+                        key={ellipse.group}
                         cx={scaledCx}
                         cy={scaledCy}
                         rx={radiusX}
                         ry={radiusY}
                         transform={`rotate(${-ellipse.angle * 180 / Math.PI}, ${scaledCx}, ${scaledCy})`}
-                        fill={colors[ellipse.cluster % colors.length]}
-                        fillOpacity="0.15" // Slightly reduced opacity to handle more points
-                        stroke={colors[ellipse.cluster % colors.length]}
-                        strokeWidth="1"
-                        strokeOpacity="0.4"
+                        fill={color}
+                        fillOpacity="0.12"
+                        stroke={color}
+                        strokeWidth="1.2"
                     />
                 );
             })}
 
-            {/* Render points: Background first, then significant ones on top, then vectors */}
-            {species.filter(s => s.isBackground).map(s => renderPoint(s, false))}
-            {species.filter(s => !s.isBackground).map(s => renderPoint(s, false))}
-            {vectors.map(v => renderPoint(v, true))}
-            
+            {sites.map(s => (
+                <g key={`site-${s.name}`}>
+                    <title>{`${s.name} (${s.group})`}</title>
+                    <SiteMarker shape={groupShape(s.group)} cx={scaleX(s.x)} cy={scaleY(s.y)} r={4} fill={groupColor(s.group)} />
+                </g>
+            ))}
+
+            {species.map(sp => (
+                <g key={`sp-${sp.name}`}>
+                    <title>{sp.name}</title>
+                    <circle cx={scaleX(sp.x)} cy={scaleY(sp.y)} r={sp.isBackground ? 1.8 : 2.8} fill="#374151" fillOpacity={sp.isBackground ? 0.5 : 0.9} />
+                </g>
+            ))}
+
+            {vectors.map(v => (
+                <g key={`vec-${v.name}`}>
+                    <title>{v.name}</title>
+                    <line x1={originX} y1={originY} x2={scaleX(v.x)} y2={scaleY(v.y)} stroke={vectorColor} strokeWidth="1.8" markerEnd="url(#arrowhead)" />
+                </g>
+            ))}
+
             {showLabels && labelPositions.map((label) => {
-                const isVector = vectors.some(v => v.name === label.point.name);
-                // Determine text anchor based on final label position relative to its point
+                const isVector = vectors.some(v => v.name === label.point.name && v.x === label.point.x);
                 const textAnchor = label.x > label.scaledPoint.x ? 'start' : 'end';
-                
                 return (
                     <g key={`${label.point.name}-label-group`} className="pointer-events-none">
-                       {showConnectors && (
-                           <line
-                                x1={label.scaledPoint.x}
-                                y1={label.scaledPoint.y}
-                                x2={label.x + (textAnchor === 'start' ? -2 : 2)}
-                                y2={label.y - 4} // adjust to point to middle of text
-                                stroke="#6b7280"
-                                strokeWidth="0.5"
-                            />
-                       )}
-                        <text 
-                            x={label.x} 
-                            y={label.y} 
-                            fontSize="10" 
-                            className={isVector ? "font-semibold" : "italic"}
-                            textAnchor={textAnchor}
-                        >
+                        {showConnectors && (
+                            <line x1={label.scaledPoint.x} y1={label.scaledPoint.y} x2={label.x + (textAnchor === 'start' ? -2 : 2)} y2={label.y - 4} stroke="#6b7280" strokeWidth="0.5" />
+                        )}
+                        <text x={label.x} y={label.y} fontSize="10" fill={isVector ? vectorColor : '#111827'} className={isVector ? 'font-semibold' : 'italic'} textAnchor={textAnchor}>
                             {label.point.name}
                         </text>
                     </g>
                 );
             })}
+
+            {groups.length > 1 && showSites && (() => {
+                // Legend laid out left to right, wrapping to a new line when the row is full.
+                let x = 0;
+                let row = 0;
+                const items = groups.map(g => {
+                    const w = 22 + g.length * 5.6;
+                    if (x + w > WIDTH - 2 * 20 && x > 0) { x = 0; row++; }
+                    const item = { g, x, row };
+                    x += w + 10;
+                    return item;
+                });
+                return (
+                    <g transform={`translate(20, ${HEIGHT - 6})`}>
+                        {items.map(({ g, x: ix, row: r }) => (
+                            <g key={g} transform={`translate(${ix}, ${r * 16})`}>
+                                <SiteMarker shape={groupShape(g)} cx={6} cy={0} r={4} fill={groupColor(g)} />
+                                <text x={16} y={4} fontSize="10">{g.replace(/_/g, ' ')}</text>
+                            </g>
+                        ))}
+                    </g>
+                );
+            })()}
+            <text x={WIDTH - PADDING} y={PADDING - 8} textAnchor="end" fontSize="9" fill="#6b7280">{`${t.ccaArrowScale} ×${arrowMul.toFixed(2)}`}</text>
         </svg>
     );
 }
@@ -397,6 +398,7 @@ export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onS
     const [showLabels, setShowLabels] = useState(true);
     const [showEllipses, setShowEllipses] = useState(true);
     const [showConnectors, setShowConnectors] = useState(true);
+    const [showSites, setShowSites] = useState(true);
 
     const biplotRef = useRef<SVGSVGElement>(null);
     const heatmapRef = useRef<SVGSVGElement>(null);
@@ -407,9 +409,26 @@ export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onS
     if (isLoading) {
         return <div className="flex justify-center items-center p-6"><div className="loader w-6 h-6 border-4 border-secondary border-t-transparent rounded-full animate-spin mr-3"></div><p>{t.ccaSiteLoading}</p></div>;
     }
+    const siteSelector = (
+        <div className="flex items-center space-x-2">
+            <label htmlFor="site-select-cca" className="text-sm font-medium text-gray-700">{t.selectSiteCCA}</label>
+            <select id="site-select-cca" value={selectedSite} onChange={e => onSiteChange(e.target.value)} className="p-2 border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
+                {siteOptions.map(site => <option key={site} value={site}>{site}</option>)}
+            </select>
+        </div>
+    );
     if (!currentData || currentData.biplot.species.length === 0) {
-        return <p className="p-4 bg-yellow-50 text-yellow-800 rounded-md text-sm">{t.noDataForSite}</p>
+        return (
+            <div className="space-y-3">
+                <div className="flex justify-end">{siteSelector}</div>
+                <div className="p-4 bg-yellow-50 text-yellow-800 rounded-md text-sm space-y-1">
+                    <p>{t.noDataForSite}</p>
+                    {currentData?.notes?.map((n, i) => <p key={i}>{n}</p>)}
+                </div>
+            </div>
+        );
     }
+    const st = currentData.stats;
 
     return (
         <div className="space-y-6">
@@ -417,12 +436,7 @@ export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onS
                 <h3 className="text-xl font-bold text-primary flex items-center">
                     <ScatterChartIcon className="h-5 w-5 mr-2" /> {t.ccaVisualizationTitle}
                 </h3>
-                <div className="flex items-center space-x-2">
-                    <label htmlFor="site-select-cca" className="text-sm font-medium text-gray-700">{t.selectSiteCCA}</label>
-                    <select id="site-select-cca" value={selectedSite} onChange={e => onSiteChange(e.target.value)} className="p-2 border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
-                        {siteOptions.map(site => <option key={site} value={site}>{site}</option>)}
-                    </select>
-                </div>
+                {siteSelector}
             </div>
 
             <div className="grid grid-cols-1 gap-8">
@@ -445,13 +459,34 @@ export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onS
                                 <label htmlFor="show-connectors" className={`ml-2 text-sm select-none ${!showLabels ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'}`}>{t.showConnectors}</label>
                             </div>
                             <div className="flex items-center">
+                                <input type="checkbox" id="show-sites" checked={showSites} onChange={() => setShowSites(!showSites)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"/>
+                                <label htmlFor="show-sites" className="ml-2 text-sm text-gray-700 select-none cursor-pointer">{t.showSites}</label>
+                            </div>
+                            <div className="flex items-center">
                                 <input type="checkbox" id="show-ellipses" checked={showEllipses} onChange={() => setShowEllipses(!showEllipses)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"/>
                                 <label htmlFor="show-ellipses" className="ml-2 text-sm text-gray-700 select-none cursor-pointer">{t.showEllipses}</label>
                             </div>
                             <button onClick={() => exportSVG(biplotRef.current, `cca-biplot-${selectedSite}.svg`)} className="flex items-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-3 rounded-lg text-sm"><ExportIcon className="h-4 w-4 mr-1"/> SVG</button>
                         </div>
                     </div>
-                     <Biplot data={currentData} palette={biplotPalette} showLabels={showLabels} showConnectors={showConnectors} showEllipses={showEllipses} svgRef={biplotRef} />
+                     <Biplot data={currentData} palette={biplotPalette} showLabels={showLabels} showConnectors={showConnectors} showEllipses={showEllipses} showSites={showSites} svgRef={biplotRef} />
+                     {st && (
+                        <div className="mt-3 text-sm text-gray-700 space-y-1 border-t pt-3">
+                            <p>
+                                <span className="font-semibold">{t.ccaConstrainedInertia}:</span> {st.constrainedInertia.toFixed(4)} / {st.totalInertia.toFixed(4)} ({st.constrainedPercent.toFixed(1)} %).{' '}
+                                <span className="font-semibold">{t.ccaPermutationTest}:</span> F = {st.F.toFixed(3)}, gl = {st.df}, {st.dfResidual}, p = {st.pValue.toFixed(3)} ({st.nPermutations} {t.permutations}).
+                            </p>
+                            <p>
+                                <span className="font-semibold">{t.ccaEigenvalues}:</span> {st.eigenvalues.map((e, i) => `CCA${i + 1} = ${e.toFixed(4)} (${st.axisPercent[i].toFixed(1)} %)`).join('; ')}.
+                            </p>
+                            <p>
+                                <span className="font-semibold">VIF:</span> {Object.entries(st.vif).map(([k, v]) => `${k} = ${Number.isFinite(v) ? (v as number).toFixed(2) : '∞'}`).join('; ')}.{' '}
+                                <span className="text-gray-500">{t.ccaVifNote}</span>
+                            </p>
+                            <p className="text-xs text-gray-500">{t.ccaMethodNote.replace('{n}', String(st.nSites)).replace('{s}', String(st.nSpecies)).replace('{seed}', String(st.seed))}</p>
+                            {currentData.notes?.map((n, i) => <p key={i} className="text-xs text-amber-700">{n}</p>)}
+                        </div>
+                     )}
                 </div>
                  <div className="p-4 border border-gray-200 rounded-lg bg-white">
                      <div className="flex justify-between items-center mb-2 flex-wrap gap-2">

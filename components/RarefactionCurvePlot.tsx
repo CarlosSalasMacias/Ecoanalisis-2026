@@ -80,6 +80,17 @@ const Marker: React.FC<{
 };
 
 
+/** "Nice" axis ticks (1, 2, 2.5, 5 × 10^k) so that labels are the exact values at the grid lines. */
+const niceTicks = (max: number, target = 6): number[] => {
+    if (!(max > 0)) return [0, 1];
+    const raw = max / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(st => st >= raw) ?? 10 * mag;
+    const ticks: number[] = [];
+    for (let v = 0; v <= max + 1e-9; v += step) ticks.push(parseFloat(v.toPrecision(10)));
+    return ticks;
+};
+
 /**
  * Cleans and processes an array of data points to ensure there are no duplicate
  * x-coordinates, which can cause rendering artifacts in SVG paths. If duplicates
@@ -118,15 +129,19 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
     const [activePalette, setActivePalette] = useState<PaletteName>('Viridis');
     const [exportFormat, setExportFormat] = useState<'svg' | 'png'>('svg');
     const [showCI, setShowCI] = useState<boolean>(true);
+    const [order, setOrder] = useState<'0' | '1' | '2'>('0');
     
     const sites = Object.keys(data).sort();
     if (sites.length === 0) return null;
+    const curveOf = (site: string) => data[site].byOrder[order];
+    const yAxisLabel = order === '0' ? t.yAxisQ0 : order === '1' ? t.yAxisQ1 : t.yAxisQ2;
+    const first = data[sites[0]];
 
     const allPoints = sites.flatMap(site => [
-        ...data[site].observed.curve,
-        ...data[site].extrapolated.curve,
-        ...data[site].confidenceInterval.lower,
-        ...data[site].confidenceInterval.upper,
+        ...curveOf(site).observed.curve,
+        ...curveOf(site).extrapolated.curve,
+        ...curveOf(site).confidenceInterval.lower,
+        ...curveOf(site).confidenceInterval.upper,
     ]);
     
     // --- SVG Layout Constants ---
@@ -137,8 +152,10 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
     const WIDTH = PADDING.left + PLOT_WIDTH + LEGEND_WIDTH + PADDING.right;
     const HEIGHT = PADDING.top + PLOT_HEIGHT + PADDING.bottom;
     
-    const xMax = Math.max(1, ...allPoints.map(p => p.x)) * 1.05;
-    const yMax = Math.max(1, ...allPoints.map(p => p.y)) * 1.05;
+    const xTicks = niceTicks(Math.max(1, ...allPoints.map(p => p.x)) * 1.02, 7);
+    const yTicks = niceTicks(Math.max(1, ...allPoints.map(p => p.y)) * 1.02, 6);
+    const xMax = Math.max(Math.max(1, ...allPoints.map(p => p.x)) * 1.02, xTicks[xTicks.length - 1]);
+    const yMax = Math.max(Math.max(1, ...allPoints.map(p => p.y)) * 1.02, yTicks[yTicks.length - 1]);
     const xMin = -xMax * 0.02;
     const yMin = -yMax * 0.02;
 
@@ -163,6 +180,14 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
         <div className="space-y-4">
              <div className="flex flex-wrap items-center gap-4 p-3 bg-gray-50 border rounded-lg">
                 <div className="flex-grow">
+                    <label htmlFor="rarefaction-order-select" className="block text-sm font-medium text-gray-700 mb-1">{t.rarefactionOrder}</label>
+                    <select id="rarefaction-order-select" value={order} onChange={e => setOrder(e.target.value as '0' | '1' | '2')} className="w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
+                        <option value="0">{t.q0Label}</option>
+                        <option value="1">{t.q1Label}</option>
+                        <option value="2">{t.q2Label}</option>
+                    </select>
+                </div>
+                <div className="flex-grow">
                     <label htmlFor="rarefaction-palette-select" className="block text-sm font-medium text-gray-700 mb-1">{t.palette}</label>
                     <select id="rarefaction-palette-select" value={activePalette} onChange={e => setActivePalette(e.target.value as PaletteName)} className="w-full p-2 border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary">
                         {Object.keys(palettes).map(name => <option key={name} value={name}>{name}</option>)}
@@ -181,7 +206,7 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
                             <option value="svg">SVG</option>
                             <option value="png">PNG</option>
                         </select>
-                        <button onClick={() => handleExport(exportFormat, svgRef, 'rarefaction-curve')} className="bg-primary hover:bg-secondary text-white font-semibold py-2 px-4 rounded-r-md transition-colors flex items-center">
+                        <button onClick={() => handleExport(exportFormat, svgRef, `rarefaction-curve-q${order}`)} className="bg-primary hover:bg-secondary text-white font-semibold py-2 px-4 rounded-r-md transition-colors flex items-center">
                             <ExportIcon className="h-4 w-4 mr-2" />
                             {t.downloadChart}
                         </button>
@@ -196,29 +221,25 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
                     <text x={WIDTH/2 - LEGEND_WIDTH/2} y={(PADDING.top / 3) + 25} textAnchor="middle" fontSize="16" fill="#4b5563">{t.rarefactionPlotSubtitle}</text>
 
                     {/* Y-Axis Grid & Labels */}
-                    <text transform={`rotate(-90, ${PADDING.left / 2.5}, ${HEIGHT / 2})`} x={PADDING.left / 2.5} y={HEIGHT / 2} textAnchor="middle" fontSize="14" className="font-semibold">{t.yAxisSpeciesDiversity}</text>
-                    {Array.from({ length: 6 }).map((_, i) => {
-                        const value = (i * yMax / 5);
-                        if (value < 0) return null;
+                    <text transform={`rotate(-90, ${PADDING.left / 2.5}, ${HEIGHT / 2})`} x={PADDING.left / 2.5} y={HEIGHT / 2} textAnchor="middle" fontSize="14" className="font-semibold">{yAxisLabel}</text>
+                    {yTicks.map((value, i) => {
                         const y = yScale(value);
                         return (
                             <g key={`y-axis-${i}`}>
                                 <line x1={PADDING.left} y1={y} x2={PADDING.left + PLOT_WIDTH} y2={y} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="3 3" />
-                                <text x={PADDING.left - 8} y={y + 4} textAnchor="end" fontSize="12">{Math.round(value)}</text>
+                                <text x={PADDING.left - 8} y={y + 4} textAnchor="end" fontSize="12">{value}</text>
                             </g>
                         );
                     })}
                     
                     {/* X-Axis Grid & Labels */}
                     <text x={(PLOT_WIDTH / 2) + PADDING.left} y={HEIGHT - PADDING.bottom + 40} textAnchor="middle" fontSize="14" className="font-semibold">{t.xAxisIndividuals}</text>
-                    {Array.from({ length: 7 }).map((_, i) => {
-                        const value = (i * xMax / 6);
-                         if (value < 0) return null;
+                    {xTicks.map((value, i) => {
                         const x = xScale(value);
                         return (
                             <g key={`x-axis-${i}`}>
                                 <line x1={x} y1={PADDING.top} x2={x} y2={HEIGHT - PADDING.bottom} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="3 3" />
-                                <text x={x} y={HEIGHT - PADDING.bottom + 20} textAnchor="middle" fontSize="12">{Math.round(value)}</text>
+                                <text x={x} y={HEIGHT - PADDING.bottom + 20} textAnchor="middle" fontSize="12">{value}</text>
                             </g>
                         );
                     })}
@@ -229,17 +250,16 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
 
                     {/* Curves */}
                     {sites.map((site, i) => {
-                        const curve = data[site];
+                        const curve = curveOf(site);
                         const color = colors[i % colors.length];
                         const shape = SHAPES[i % SHAPES.length];
-                        const zeroPoint = { x: 0, y: 0 };
                         const observedPoint = curve.observed.point;
 
-                        const rarefactionPoints = cleanAndAveragePoints([zeroPoint, ...curve.observed.curve]);
+                        const rarefactionPoints = cleanAndAveragePoints(curve.observed.curve);
                         const extrapolationPoints = cleanAndAveragePoints([observedPoint, ...curve.extrapolated.curve]);
 
-                        const lowerCI = cleanAndAveragePoints([zeroPoint, ...curve.confidenceInterval.lower]);
-                        const upperCI = cleanAndAveragePoints([zeroPoint, ...curve.confidenceInterval.upper]);
+                        const lowerCI = cleanAndAveragePoints(curve.confidenceInterval.lower);
+                        const upperCI = cleanAndAveragePoints(curve.confidenceInterval.upper);
 
                         const rarefactionPath = createPath(rarefactionPoints);
                         const extrapolationPath = createPath(extrapolationPoints);
@@ -290,6 +310,7 @@ const RarefactionCurvePlot: React.FC<RarefactionCurvePlotProps> = ({ data }) => 
                     </g>
                 </svg>
             </div>
+            <p className="text-xs text-gray-500 italic">{t.rarefactionMethodNote.replace('{b}', String(first.nBoot)).replace('{seed}', String(first.seed))}</p>
         </div>
     );
 };
