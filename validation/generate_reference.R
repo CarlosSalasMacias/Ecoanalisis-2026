@@ -44,7 +44,14 @@ cca_case <- function(Y, X, groups = NULL) {
     pdf(NULL)
     plot(m, scaling = 2, type = "n")
     el <- ordiellipse(m, groups, display = "sites", kind = "sd", conf = 0.95, scaling = 2, draw = "none")
+    elSE <- ordiellipse(m, groups, display = "sites", kind = "se", conf = 0.95, scaling = 2, draw = "none")
     dev.off()
+    res$ellipsesSE <- lapply(names(elSE), function(g) {
+      e <- elSE[[g]]
+      ev <- eigen(e$cov * e$scale^2)
+      list(group = g, cx = unname(e$center[1]), cy = unname(e$center[2]),
+           rx = sqrt(ev$values[1]), ry = sqrt(ev$values[2]))
+    })
     res$groups <- as.character(groups)
     res$ellipses <- lapply(names(el), function(g) {
       e <- el[[g]]

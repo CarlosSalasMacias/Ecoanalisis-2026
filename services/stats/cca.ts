@@ -251,18 +251,26 @@ export interface Ellipse {
   angle: number; // radians
 }
 
+/** Orden natural de nombres de grupo («51-100» antes de «101-150»). */
+export const naturalCompare = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+export type EllipseKind = 'sd' | 'se';
+
 /**
- * 95% dispersion ellipses of site scores by group (vegan::ordiellipse(kind = "sd", conf = 0.95),
- * weighted by site weights as vegan does for CCA).
+ * 95% ellipses of site scores by group, weighted by site weights as vegan does for CCA:
+ * - kind 'sd': dispersion of the plots (vegan::ordiellipse(kind = "sd"));
+ * - kind 'se': confidence region of the group centroid (vegan::ordiellipse(kind = "se")), whose
+ *   covariance is the weighted covariance multiplied by Σw² (normalised weights).
  */
 export function groupEllipses(
   points: { x: number; y: number; weight: number }[],
   groups: string[],
   conf = 0.95,
+  kind: EllipseKind = 'sd',
 ): Ellipse[] {
   const scale = Math.sqrt(-2 * Math.log(1 - conf)); // sqrt(qchisq(conf, 2))
   const out: Ellipse[] = [];
-  for (const g of Array.from(new Set(groups)).sort()) {
+  for (const g of Array.from(new Set(groups)).sort(naturalCompare)) {
     const pts = points.filter((_, i) => groups[i] === g);
     if (pts.length < 3) continue;
     const wsum = pts.reduce((a, p) => a + p.weight, 0);
@@ -279,9 +287,10 @@ export function groupEllipses(
       syy += w[i] * (p.y - cy) ** 2;
       sxy += w[i] * (p.x - cx) * (p.y - cy);
     });
-    sxx /= denom;
-    syy /= denom;
-    sxy /= denom;
+    const f = kind === 'se' ? w.reduce((a, wi) => a + wi * wi, 0) / denom : 1 / denom;
+    sxx *= f;
+    syy *= f;
+    sxy *= f;
     const tr = sxx + syy;
     const det = sxx * syy - sxy * sxy;
     const disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - det));

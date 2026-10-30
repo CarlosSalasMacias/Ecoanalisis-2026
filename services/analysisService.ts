@@ -867,11 +867,15 @@ export function runCCAAnalysis(speciesData: SpeciesData[], siteData: SiteData): 
     const labeled = new Set(
         res.species.slice().sort((a, b) => b.weight - a.weight).slice(0, 15).map(s => s.name),
     );
-    const species: CCACoordinates[] = res.species.map(s => ({ name: s.name, x: s.x, y: s.y, isBackground: !labeled.has(s.name) }));
+    const species: CCACoordinates[] = res.species.map(s => ({ name: s.name, x: s.x, y: s.y, weight: s.weight, isBackground: !labeled.has(s.name) }));
     const sites: CCACoordinates[] = res.sitesWA.map((s, k) => ({ name: s.name, x: s.x, y: s.y, group: groups[k] }));
-    const ellipses = new Set(groups).size > 1
-        ? groupEllipses(res.sitesWA, groups, ANALYSIS_SETTINGS.cca.ellipseConf).map(e => ({ cx: e.cx, cy: e.cy, rx: e.rx, ry: e.ry, angle: e.angle, group: e.group }))
+    const toData = (kind: 'sd' | 'se') => new Set(groups).size > 1
+        ? groupEllipses(res.sitesWA, groups, ANALYSIS_SETTINGS.cca.ellipseConf, kind).map(e => ({ cx: e.cx, cy: e.cy, rx: e.rx, ry: e.ry, angle: e.angle, group: e.group }))
         : [];
+    const ellipses = toData('sd');
+    const ellipsesSE = toData('se');
+    const groupSizes: Record<string, number> = {};
+    groups.forEach(g => { groupSizes[g] = (groupSizes[g] ?? 0) + 1; });
 
     if (res.rank < 2) notes.push('Solo hay un eje restringido (una variable ambiental): el eje vertical del gráfico es nulo.');
 
@@ -879,6 +883,8 @@ export function runCCAAnalysis(speciesData: SpeciesData[], siteData: SiteData): 
         biplot: { species, vectors: res.biplot.map(b => ({ name: b.name, x: b.x, y: b.y })), sites },
         correlationMatrix: calculateCorrelationMatrix(speciesData, siteData),
         ellipses,
+        ellipsesSE,
+        groupSizes,
         varianceExplained: [res.axisPercent[0] ?? 0, res.axisPercent[1] ?? 0],
         stats: {
             nSites: siteNames.length,

@@ -14,7 +14,7 @@ import DataInput from './components/DataInput';
 import CooccurrenceTable from './components/CooccurrenceTable';
 import InterpretationDisplay from './components/InterpretationDisplay';
 import SpeciesNicheTable from './components/SpeciesNicheTable';
-import { CCAPlot } from './components/CCAPlot';
+import { CCAPlot, EllipseMode } from './components/CCAPlot';
 import StructuralAnalysisTable from './components/StructuralAnalysisTable';
 import EcologicalParametersTable from './components/EcologicalParametersTable';
 import RarefactionCurvePlot from './components/RarefactionCurvePlot';
@@ -75,6 +75,7 @@ const App: React.FC = () => {
 
     // API Key states
     const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+    const [ccaEllipseMode, setCcaEllipseMode] = useState<EllipseMode>('se');
     const [tempApiKey, setTempApiKey] = useState(getApiKey());
     const [isKeyConfigured, setIsKeyConfigured] = useState(hasApiKeyConfigured());
     
@@ -250,6 +251,7 @@ const App: React.FC = () => {
                 hasEnvironmentalData: siteGridData.length > 1,
                 structure: structuralAnalysis,
                 cca: ccaPlotData ? ccaPlotData['General'] : null,
+                ccaEllipseMode,
                 biomass: biomassResults,
                 siteDescriptions: biomassConfig?.descriptions ?? {},
             });
@@ -476,7 +478,7 @@ const App: React.FC = () => {
                                     <SpeciesNicheTable nicheData={nicheData} />
                                 )}
                                 {activeTab === 'cca' && (
-                                    <CCAPlot data={ccaPlotData} sites={vegetationTypes} selectedSite={ccaSelectedSite} onSiteChange={handleCCASiteChange} isLoading={isCcaSiteLoading}/>
+                                    <CCAPlot data={ccaPlotData} ellipseMode={ccaEllipseMode} onEllipseModeChange={setCcaEllipseMode} sites={vegetationTypes} selectedSite={ccaSelectedSite} onSiteChange={handleCCASiteChange} isLoading={isCcaSiteLoading}/>
                                 )}
                             </div>
                             

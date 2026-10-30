@@ -20,6 +20,8 @@ export interface MethodsContext {
   /** Para describir el IVI con y sin cultivo y el diámetro usado en el área basal. */
   structure?: FullStructuralAnalysis | null;
   cca: SingleCCAPlotData | null;
+  /** Tipo de elipse mostrado en el biplot. */
+  ccaEllipseMode?: 'none' | 'sd' | 'se';
   biomass: BiomassAnalysisResults | null;
   /** Descripción de los sitios aportada por el usuario. */
   siteDescriptions: Record<string, string>;
@@ -100,9 +102,17 @@ export function buildMethodology(ctx: MethodsContext): GeneratedText {
   if (st) {
     out.push(es ? '### Relación especies–ambiente' : '### Species–environment relationships');
     const vars = Object.keys(st.vif).join(', ');
+    const mode = ctx.ccaEllipseMode ?? 'se';
+    const confPct = S.cca.ellipseConf * 100;
+    const ellES = mode === 'none' ? '' : mode === 'se'
+      ? ` En el biplot, las elipses son regiones de confianza del ${confPct} % del centroide ponderado de las parcelas de cada tipo de vegetación (como ordiellipse con kind = "se").`
+      : ` En el biplot, las elipses son elipses de dispersión ponderadas de las parcelas de cada tipo de vegetación (como ordiellipse con kind = "sd"), escaladas a un nivel de confianza del ${confPct} %.`;
+    const ellEN = mode === 'none' ? '' : mode === 'se'
+      ? ` In the biplot, ellipses are ${confPct}% confidence regions of the weighted centroid of the plots of each vegetation type (as ordiellipse with kind = "se").`
+      : ` In the biplot, ellipses are weighted dispersion ellipses of the plots of each vegetation type (as ordiellipse with kind = "sd"), scaled to a ${confPct}% confidence level.`;
     out.push(es
-      ? `La relación entre la composición de especies (abundancias por parcela) y las variables ambientales (${vars}) se analizó con un análisis de correspondencia canónica (CCA) ${c('terBraak1986')}, con el mismo algoritmo y escalado de puntuaciones (escalado 2) que la función cca del paquete vegan ${c('vegan')}. La significación del modelo completo se evaluó con una prueba de permutación del pseudo-F (${st.nPermutations} permutaciones) ${c('legendre2011')}, y la colinealidad entre variables con factores de inflación de la varianza (VIF). En el biplot, las elipses son elipses de dispersión ponderadas de las parcelas de cada tipo de vegetación (como ordiellipse con kind = "sd"), escaladas a un nivel de confianza del ${S.cca.ellipseConf * 100} %.`
-      : `The relationship between species composition (abundances per plot) and the environmental variables (${vars}) was analysed with canonical correspondence analysis (CCA) ${c('terBraak1986')}, using the same algorithm and score scaling (scaling 2) as the cca function of the vegan package ${c('vegan')}. Significance of the full model was assessed with a pseudo-F permutation test (${st.nPermutations} permutations) ${c('legendre2011')}, and collinearity among variables with variance inflation factors (VIF). In the biplot, ellipses are weighted dispersion ellipses of the plots of each vegetation type (as ordiellipse with kind = "sd"), scaled to a ${S.cca.ellipseConf * 100}% confidence level.`);
+      ? `La relación entre la composición de especies (abundancias por parcela) y las variables ambientales (${vars}) se analizó con un análisis de correspondencia canónica (CCA) ${c('terBraak1986')}, con el mismo algoritmo y escalado de puntuaciones (escalado 2) que la función cca del paquete vegan ${c('vegan')}. La significación del modelo completo se evaluó con una prueba de permutación del pseudo-F (${st.nPermutations} permutaciones) ${c('legendre2011')}, y la colinealidad entre variables con factores de inflación de la varianza (VIF).${ellES}`
+      : `The relationship between species composition (abundances per plot) and the environmental variables (${vars}) was analysed with canonical correspondence analysis (CCA) ${c('terBraak1986')}, using the same algorithm and score scaling (scaling 2) as the cca function of the vegan package ${c('vegan')}. Significance of the full model was assessed with a pseudo-F permutation test (${st.nPermutations} permutations) ${c('legendre2011')}, and collinearity among variables with variance inflation factors (VIF).${ellEN}`);
     if (st.excludedPlots.length || st.excludedVariables.length) {
       out.push(es
         ? `Se excluyeron del CCA ${st.excludedPlots.length} parcelas sin datos ambientales completos y ${st.excludedVariables.length} variables no numéricas o constantes${st.excludedVariables.length ? ` (${st.excludedVariables.join(', ')})` : ''}.`

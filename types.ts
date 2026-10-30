@@ -131,6 +131,7 @@ export interface CCACoordinates {
   y: number;
   group?: string; // vegetation type of a site point
   isBackground?: boolean; // point drawn without a label
+  weight?: number; // species weight (column total), used to choose which species get a label
 }
 
 /**
@@ -164,7 +165,12 @@ export interface SingleCCAPlotData {
     sites?: CCACoordinates[];
   };
   correlationMatrix: CorrelationMatrix;
+  /** Elipses de dispersión de las parcelas (kind = "sd"). */
   ellipses?: EllipseData[];
+  /** Elipses de confianza del centroide de cada grupo (kind = "se"). */
+  ellipsesSE?: EllipseData[];
+  /** Nº de parcelas por grupo, para avisar cuando una elipse se basa en pocas parcelas. */
+  groupSizes?: Record<string, number>;
   /** % of total inertia explained by CCA1 and CCA2 */
   varianceExplained?: [number, number];
   stats?: CCAStats;
