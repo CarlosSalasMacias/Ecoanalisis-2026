@@ -5,6 +5,7 @@ import { ExportIcon, ScatterChartIcon } from './Icons';
 import { useTranslations } from '../translations';
 import { palettes, PaletteName } from './palettes';
 import { naturalCompare } from '../services/stats/cca';
+import { placeLabels, measureText, LabelRequest } from './labelPlacement';
 
 export type EllipseMode = 'none' | 'sd' | 'se';
 const LABEL_OPTIONS = [0, 5, 10, 15, 25, Infinity];
@@ -41,103 +42,6 @@ const exportSVG = (svgEl: SVGSVGElement | null, filename: string) => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 };
-
-// This hook calculates label positions using a simple physics simulation to avoid overlaps.
-const useLabelPositions = (
-    points: CCACoordinates[],
-    scaleX: (v: number) => number,
-    scaleY: (v: number) => number,
-    showLabels: boolean
-) => {
-    return useMemo(() => {
-        if (!showLabels || points.length === 0) {
-            return [];
-        }
-
-        // Only generate labels for points that are NOT background points and have a name
-        const labels = points
-            .filter(p => !p.isBackground && p.name)
-            .map(p => {
-                const FONT_SIZE = 10;
-                const scaledX = scaleX(p.x);
-                const scaledY = scaleY(p.y);
-
-                // Radially position anchor point away from the plot center
-                const plotCenterX = PADDING + (WIDTH - PADDING * 2) / 2;
-                const plotCenterY = PADDING + (HEIGHT - PADDING * 2) / 2;
-                const dx = scaledX - plotCenterX;
-                const dy = scaledY - plotCenterY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const unitDx = dx / (dist || 1);
-                const unitDy = dy / (dist || 1);
-                
-                const LABEL_OFFSET = 12; // Start labels a bit away from their points
-                const anchorX = scaledX + unitDx * LABEL_OFFSET;
-                const anchorY = scaledY + unitDy * LABEL_OFFSET;
-
-                return {
-                    x: anchorX,
-                    y: anchorY,
-                    width: p.name.length * (FONT_SIZE * 0.55) + 4,
-                    height: FONT_SIZE + 4,
-                    originalAnchor: { x: anchorX, y: anchorY },
-                    point: p,
-                    scaledPoint: { x: scaledX, y: scaledY } // Store scaled point for connector line
-                };
-            });
-
-        // Simulation parameters - tuned for better separation
-        const REPULSION_STRENGTH = 0.8;
-        const ATTRACTION_STRENGTH = 0.04; // Weak attraction to allow labels to move
-        const ITERATIONS = 150;
-
-        for (let iter = 0; iter < ITERATIONS; iter++) {
-            for (let i = 0; i < labels.length; i++) {
-                // Repulsion from other labels
-                for (let j = i + 1; j < labels.length; j++) {
-                    const labelA = labels[i];
-                    const labelB = labels[j];
-
-                    const aRight = labelA.x + labelA.width;
-                    const aLeft = labelA.x - (labelA.point.x < 0 ? labelA.width : 0);
-                    const aTop = labelA.y - labelA.height;
-                    const aBottom = labelA.y;
-
-                    const bRight = labelB.x + labelB.width;
-                    const bLeft = labelB.x - (labelB.point.x < 0 ? labelB.width : 0);
-                    const bTop = labelB.y - labelB.height;
-                    const bBottom = labelB.y;
-                    
-                    const overlapX = Math.max(0, Math.min(aRight, bRight) - Math.max(aLeft, bLeft));
-                    const overlapY = Math.max(0, Math.min(aBottom, bBottom) - Math.max(aTop, bTop));
-
-                    if (overlapX > 0 && overlapY > 0) {
-                        const dx = labelB.x - labelA.x;
-                        const dy = labelB.y - labelA.y;
-                        const distance = Math.sqrt(dx * dx + dy * dy) + 1e-6;
-                        
-                        const moveX = (dx / distance) * REPULSION_STRENGTH;
-                        const moveY = (dy / distance) * REPULSION_STRENGTH;
-
-                        labelA.x -= moveX;
-                        labelA.y -= moveY;
-                        labelB.x += moveX;
-                        labelB.y += moveY;
-                    }
-                }
-
-                // Attraction to original anchor point
-                const label = labels[i];
-                const attractDx = label.originalAnchor.x - label.x;
-                const attractDy = label.originalAnchor.y - label.y;
-                label.x += attractDx * ATTRACTION_STRENGTH;
-                label.y += attractDy * ATTRACTION_STRENGTH;
-            }
-        }
-        return labels;
-    }, [points, scaleX, scaleY, showLabels]);
-};
-
 
 const SITE_SHAPES = ['circle', 'triangle', 'square', 'diamond'] as const;
 
@@ -211,8 +115,47 @@ const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabe
     const groupColor = (g?: string) => colors[Math.max(0, groups.indexOf(g || '')) % colors.length];
     const groupShape = (g?: string) => SITE_SHAPES[Math.max(0, groups.indexOf(g || '')) % SITE_SHAPES.length];
     const vectorColor = palette === 'Greyscale' ? '#000000' : '#1d4ed8';
-    const labelPoints = useMemo(() => [...species, ...vectors], [species, vectors]);
-    const labelPositions = useLabelPositions(labelPoints, scaleX, scaleY, showLabels);
+    const scaleCaption = `${t.ccaArrowScale} ×${arrowMul.toFixed(2)}`;
+    // Etiquetas: primero las flechas ambientales y luego las especies más abundantes. Cada una se
+    // coloca en la posición libre más cercana a su punto (ver labelPlacement.ts).
+    const labelPositions = useMemo(() => {
+        if (!showLabels) return [];
+        const FONT = 10, H = 12;
+        const requests: (LabelRequest & { isVector: boolean })[] = [
+            ...vectors.map(v => ({
+                id: `vec-${v.name}`, text: v.name, isVector: true,
+                px: scaleX(v.x), py: scaleY(v.y), width: measureText(v.name, FONT, false, true) + 2, height: H,
+                preferredAngle: Math.atan2(scaleY(v.y) - originY, scaleX(v.x) - originX),
+            })),
+            ...species.filter(sp => !sp.isBackground && sp.name)
+                .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
+                .map(sp => ({
+                    id: `sp-${sp.name}`, text: sp.name, isVector: false,
+                    px: scaleX(sp.x), py: scaleY(sp.y), width: measureText(sp.name, FONT, true) + 2, height: H,
+                })),
+        ];
+        const placed = placeLabels({
+            labels: requests,
+            points: [
+                ...sites.map(s => ({ x: scaleX(s.x), y: scaleY(s.y), r: 4.5 })),
+                ...species.map(sp => ({ x: scaleX(sp.x), y: scaleY(sp.y), r: sp.isBackground ? 2 : 3 })),
+                // Puntas de flecha.
+                ...vectors.map(v => ({ x: scaleX(v.x), y: scaleY(v.y), r: 5 })),
+            ],
+            segments: [
+                ...vectors.map(v => ({ x1: originX, y1: originY, x2: scaleX(v.x), y2: scaleY(v.y) })),
+                // Marco del gráfico: las etiquetas no lo cruzan.
+                { x1: PADDING, y1: PADDING, x2: WIDTH - PADDING, y2: PADDING },
+                { x1: WIDTH - PADDING, y1: PADDING, x2: WIDTH - PADDING, y2: HEIGHT - PADDING },
+                { x1: WIDTH - PADDING, y1: HEIGHT - PADDING, x2: PADDING, y2: HEIGHT - PADDING },
+                { x1: PADDING, y1: HEIGHT - PADDING, x2: PADDING, y2: PADDING },
+            ],
+            reserved: [{ x0: WIDTH - PADDING - measureText(scaleCaption, 9) - 2, y0: PADDING - 18, x1: WIDTH - PADDING + 2, y1: PADDING - 5 }],
+            bounds: { x0: PADDING * 0.55, y0: 4, x1: WIDTH - 4, y1: HEIGHT - PADDING * 0.55 },
+            center: { x: originX, y: originY },
+        });
+        return placed.map((pl, k) => ({ ...pl, request: requests[k] }));
+    }, [showLabels, vectors, species, sites, scaleX, scaleY, originX, originY, scaleCaption]);
     const pct = data.varianceExplained ?? [0, 0];
 
     return (
@@ -275,16 +218,15 @@ const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabe
                 </g>
             ))}
 
-            {showLabels && labelPositions.map((label) => {
-                const isVector = vectors.some(v => v.name === label.point.name && v.x === label.point.x);
-                const textAnchor = label.x > label.scaledPoint.x ? 'start' : 'end';
+            {showLabels && labelPositions.map(label => {
+                const { request: r, box } = label;
                 return (
-                    <g key={`${label.point.name}-label-group`} className="pointer-events-none">
-                        {showConnectors && (
-                            <line x1={label.scaledPoint.x} y1={label.scaledPoint.y} x2={label.x + (textAnchor === 'start' ? -2 : 2)} y2={label.y - 4} stroke="#6b7280" strokeWidth="0.5" />
+                    <g key={`${label.id}-label`} className="pointer-events-none">
+                        {showConnectors && label.distance > 6 && (
+                            <line x1={r.px} y1={r.py} x2={label.connectorEnd.x} y2={label.connectorEnd.y} stroke="#6b7280" strokeWidth="0.6" />
                         )}
-                        <text x={label.x} y={label.y} fontSize="10" fill={isVector ? vectorColor : '#111827'} className={isVector ? 'font-semibold' : 'italic'} textAnchor={textAnchor}>
-                            {label.point.name}
+                        <text x={box.x0 + 1} y={box.y1 - 3} fontSize="10" fill={r.isVector ? vectorColor : '#111827'} className={r.isVector ? 'font-semibold' : 'italic'}>
+                            {r.text}
                         </text>
                     </g>
                 );
@@ -312,7 +254,7 @@ const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabe
                     </g>
                 );
             })()}
-            <text x={WIDTH - PADDING} y={PADDING - 8} textAnchor="end" fontSize="9" fill="#6b7280">{`${t.ccaArrowScale} ×${arrowMul.toFixed(2)}`}</text>
+            <text x={WIDTH - PADDING} y={PADDING - 8} textAnchor="end" fontSize="9" fill="#6b7280">{scaleCaption}</text>
         </svg>
     );
 }
