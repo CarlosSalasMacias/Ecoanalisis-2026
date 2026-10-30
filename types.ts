@@ -351,6 +351,14 @@ export interface BiomassAnalysisResults {
   };
   processedData: ForestDataRow[];
   originalHeaders: string[];
+  carbonFraction: number;
+}
+
+export interface BiomassConfig {
+  selections: EquationSelection;
+  plotInfo: PlotInfo;
+  descriptions: Record<string, string>;
+  carbonFraction: number;
 }
 
 // --- New Ecological Parameters Types ---

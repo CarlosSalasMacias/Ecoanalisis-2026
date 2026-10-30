@@ -1,13 +1,13 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { EquationSelection, PlotInfo } from '../types';
-import { EQUATION_OPTIONS } from '../services/analysisService';
+import { BiomassConfig, EquationSelection, PlotInfo } from '../types';
+import { DEFAULT_CARBON_FRACTION, EQUATION_OPTIONS } from '../services/analysisService';
 import { useTranslations } from '../translations';
 
 interface BiomassConfigPanelProps {
   vegetationTypes: string[];
-  onConfigChange: (config: { selections: EquationSelection, plotInfo: PlotInfo, descriptions: Record<string, string> }) => void;
+  onConfigChange: (config: BiomassConfig) => void;
   onValidityChange: (isValid: boolean) => void;
 }
 
@@ -16,6 +16,9 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
   const [equationSelections, setEquationSelections] = useState<EquationSelection>({});
   const [plotInfo, setPlotInfo] = useState<PlotInfo>({});
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  const [carbonFractionText, setCarbonFractionText] = useState<string>(String(DEFAULT_CARBON_FRACTION));
+  const carbonFraction = parseFloat(carbonFractionText.replace(',', '.'));
+  const carbonFractionValid = carbonFraction > 0 && carbonFraction < 1;
 
   // Reset state when vegetation types change (e.g., new file loaded)
   useEffect(() => {
@@ -40,14 +43,14 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
   };
 
   const isConfigValid = useMemo(() => {
-    if (vegetationTypes.length === 0) return false;
+    if (vegetationTypes.length === 0 || !carbonFractionValid) return false;
     return vegetationTypes.every(vt => {
         const eqSelected = equationSelections[vt] && equationSelections[vt] !== '';
         const numPlotsValid = plotInfo[vt]?.numPlots && !isNaN(parseFloat(plotInfo[vt].numPlots)) && parseFloat(plotInfo[vt].numPlots) > 0;
         const plotAreaValid = plotInfo[vt]?.plotArea && !isNaN(parseFloat(plotInfo[vt].plotArea)) && parseFloat(plotInfo[vt].plotArea) > 0;
         return eqSelected && numPlotsValid && plotAreaValid;
     });
-  }, [vegetationTypes, equationSelections, plotInfo]);
+  }, [vegetationTypes, equationSelections, plotInfo, carbonFractionValid]);
   
   const sortedEquationOptions = useMemo(() => {
     return Object.entries(EQUATION_OPTIONS)
@@ -59,9 +62,9 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
   useEffect(() => {
     onValidityChange(isConfigValid);
     if (isConfigValid) {
-        onConfigChange({ selections: equationSelections, plotInfo, descriptions });
+        onConfigChange({ selections: equationSelections, plotInfo, descriptions, carbonFraction });
     }
-  }, [isConfigValid, equationSelections, plotInfo, descriptions, onValidityChange, onConfigChange]);
+  }, [isConfigValid, equationSelections, plotInfo, descriptions, carbonFraction, onValidityChange, onConfigChange]);
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-200">
@@ -69,6 +72,13 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
         <p className="text-gray-600 mb-4">{t.biomassConfigDescription}</p>
 
         <div className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-4">
+            <div className="flex flex-wrap items-end gap-3 p-3 bg-white border rounded-md">
+                <div>
+                    <label htmlFor="carbon-fraction" className="text-sm font-medium text-gray-700">{t.carbonFraction}</label>
+                    <input id="carbon-fraction" type="number" step="0.001" min="0.3" max="0.6" value={carbonFractionText} onChange={e => setCarbonFractionText(e.target.value)} className={`w-28 mt-1 p-2 border rounded-md shadow-sm text-sm ${carbonFractionValid ? 'border-gray-300' : 'border-red-500'}`} />
+                </div>
+                <p className="text-xs text-gray-500 flex-1 min-w-[200px]">{t.carbonFractionHelp}</p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {vegetationTypes.map(vt => (
                     <div key={vt} className="p-3 border rounded-md bg-white space-y-3 shadow-sm">

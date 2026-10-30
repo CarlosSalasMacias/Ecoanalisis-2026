@@ -922,7 +922,11 @@ export const EQUATION_OPTIONS: Record<string, string> = {
     moist: 'Moist Forest (Chave et al., 2005)',
     wet: 'Wet Forest (Chave et al., 2005)',
     generic_no_height: 'Bosque Tropical Genérico (Chave et al., 2005, sin altura)',
+    chave2014: 'Pantropical con altura (Chave et al., 2014, ec. 4)',
 };
+
+/** Default carbon fraction of dry biomass (IPCC 2006, Vol. 4, Table 4.3). */
+export const DEFAULT_CARBON_FRACTION = 0.47;
 
 const robustParse = (value: string | number | null | undefined): number => {
     if (value === null || value === undefined) return NaN;
@@ -994,6 +998,16 @@ const calculationFunctions: Record<string, (row: ForestDataRow) => number | null
         }
         return null;
     },
+    // Chave et al. (2014) Glob. Change Biol. 20:3177–3190, Eq. 4: AGB (kg) = 0.0673 × (ρ D² H)^0.976
+    chave2014: (row) => {
+        const p = robustDensity(row);
+        const D = robustDAP(row);
+        const H = robustHeight(row);
+        if (p > 0 && D > 0 && H > 0) {
+            return 0.0673 * Math.pow(p * D * D * H, 0.976);
+        }
+        return null;
+    },
     generic_no_height: (row) => {
         const p = robustDensity(row);
         const D = robustDAP(row);
@@ -1014,7 +1028,8 @@ const MUSA_SCIENTIFIC_NAME = 'musa';
 
 const processBiomassData = (
     data: ForestDataRow[],
-    selections: EquationSelection
+    selections: EquationSelection,
+    carbonFraction: number
 ): ForestDataRow[] => {
     return data.map(row => {
         const scientificName = String(row['Nombre científico (Completo)'] || '').toLowerCase();
@@ -1044,7 +1059,7 @@ const processBiomassData = (
         }
 
         const agb_mg = agb_kg !== null ? agb_kg / 1000 : null;
-        const carbon = agb_mg !== null ? agb_mg * 0.50 : null;
+        const carbon = agb_mg !== null ? agb_mg * carbonFraction : null;
 
         return {
             ...row,
@@ -1149,11 +1164,20 @@ const calculateSummaryAndTotals = (
     const totalAgb = detailedSummary.reduce((sum, item) => sum + item['AGB_Mg_Total'], 0);
     const totalCarbon = detailedSummary.reduce((sum, item) => sum + item['Carbono_Mg_Total'], 0);
 
-    const perHaItems = detailedSummary.filter(item => item['Carbono_Mg/ha'] !== undefined);
-            
-    const totalCarbonPerHa = perHaItems.length > 0
-        ? perHaItems.reduce((sum, item) => sum + (item['Carbono_Mg/ha'] || 0), 0) / perHaItems.length
-        : undefined;
+    // Carbon density of the whole study area: total carbon / total sampled area (weighted by area),
+    // not the unweighted mean of the per-vegetation-type densities.
+    let carbonWithArea = 0;
+    let totalArea = 0;
+    detailedSummary.forEach(item => {
+        const info = plotInfo[item['Tipo de vegetación']];
+        const numPlots = Number(String(info?.numPlots ?? '0').replace(',', '.'));
+        const plotAreaHa = Number(String(info?.plotArea ?? '0').replace(',', '.')) / 10000;
+        if (numPlots > 0 && plotAreaHa > 0) {
+            carbonWithArea += item['Carbono_Mg_Total'];
+            totalArea += numPlots * plotAreaHa;
+        }
+    });
+    const totalCarbonPerHa = totalArea > 0 ? carbonWithArea / totalArea : undefined;
 
     return {
         summary,
@@ -1170,9 +1194,10 @@ export function runBiomassAnalysis(
   speciesData: ForestDataRow[],
   equationSelections: EquationSelection,
   plotInfo: PlotInfo,
-  originalHeaders: string[]
+  originalHeaders: string[],
+  carbonFraction: number = DEFAULT_CARBON_FRACTION
 ): BiomassAnalysisResults {
-  const processedData = processBiomassData(speciesData, equationSelections);
+  const processedData = processBiomassData(speciesData, equationSelections, carbonFraction);
   const { summary, totals, summaryByPlot } = calculateSummaryAndTotals(processedData, plotInfo);
-  return { summary, summaryByPlot, totals, processedData, originalHeaders };
+  return { summary, summaryByPlot, totals, processedData, originalHeaders, carbonFraction };
 }

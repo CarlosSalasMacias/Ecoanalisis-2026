@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { SpeciesData, SiteCooccurrenceMatrix, SignificantPair, AllEnvironmentalAnalyses, SingleNicheData, SingleCCAPlotData, CooccurrenceCell, SiteEcologicalParameters, RarefactionData, IndValResult, FullStructuralAnalysis, SiteNicheData, SiteCCAPlotData, BiomassAnalysisResults, EquationSelection, PlotInfo, ForestDataRow, SiteData } from './types';
+import { BiomassConfig, SpeciesData, SiteCooccurrenceMatrix, SignificantPair, AllEnvironmentalAnalyses, SingleNicheData, SingleCCAPlotData, CooccurrenceCell, SiteEcologicalParameters, RarefactionData, IndValResult, FullStructuralAnalysis, SiteNicheData, SiteCCAPlotData, BiomassAnalysisResults, EquationSelection, PlotInfo, ForestDataRow, SiteData } from './types';
 import { parseData, parseSiteData, runCooccurrenceAnalysis, getSignificantPairs, analyzeAllEnvironmentalFactors, calculateSpeciesEnvironmentalNiche, runStructuralAnalysis, runCCAAnalysis, calculateEcologicalParameters, runIndValAnalysis, runBiomassAnalysis, calculateRarefactionData } from './services/analysisService';
 import { generateFinalInterpretation, generateMethodology, hasApiKeyConfigured, getApiKey } from './services/geminiService';
 import { generateMethodologyDocx, generateInterpretationDocx } from './services/docxGenerator';
@@ -200,9 +200,9 @@ const formatBiomassForPrompt = (biomassResults: BiomassAnalysisResults | null): 
 
     summary += `**Overall Totals:**\n`;
     summary += `- Total Above-Ground Biomass (AGB): ${biomassResults.totals.agb.toFixed(2)} Mg\n`;
-    summary += `- Total Stored Carbon: ${biomassResults.totals.carbon.toFixed(2)} Mg\n`;
+    summary += `- Total Stored Carbon: ${biomassResults.totals.carbon.toFixed(2)} Mg (carbon fraction ${biomassResults.carbonFraction})\n`;
     if (biomassResults.totals.carbonPerHa) {
-        summary += `- Average Carbon Density: ${biomassResults.totals.carbonPerHa.toFixed(2)} Mg/ha\n\n`;
+        summary += `- Carbon Density of the sampled area (total carbon / total sampled area): ${biomassResults.totals.carbonPerHa.toFixed(2)} Mg/ha\n\n`;
     }
 
     summary += `**Carbon Stocks by Vegetation Type:**\n`;
@@ -260,7 +260,7 @@ const App: React.FC = () => {
     const [indValSelectedSite, setIndValSelectedSite] = useState('General');
 
     // State for biomass configuration
-    const [biomassConfig, setBiomassConfig] = useState<{ selections: EquationSelection, plotInfo: PlotInfo, descriptions: Record<string, string> } | null>(null);
+    const [biomassConfig, setBiomassConfig] = useState<BiomassConfig | null>(null);
     const [isBiomassConfigValid, setIsBiomassConfigValid] = useState(false);
 
     // API Key states
@@ -325,7 +325,7 @@ const App: React.FC = () => {
                 Promise.resolve(runStructuralAnalysis(speciesData, isBiomassAnalysisEnabled && biomassConfig ? biomassConfig.plotInfo : null)),
                 Promise.resolve(calculateEcologicalParameters(speciesData)),
                 Promise.resolve(runIndValAnalysis(speciesData)),
-                isBiomassAnalysisEnabled && biomassConfig ? Promise.resolve(runBiomassAnalysis(speciesData as ForestDataRow[], biomassConfig.selections, biomassConfig.plotInfo, speciesGridData[0])) : Promise.resolve(null),
+                isBiomassAnalysisEnabled && biomassConfig ? Promise.resolve(runBiomassAnalysis(speciesData as ForestDataRow[], biomassConfig.selections, biomassConfig.plotInfo, speciesGridData[0], biomassConfig.carbonFraction)) : Promise.resolve(null),
                 Promise.resolve(calculateRarefactionData(speciesData))
             ]);
 
