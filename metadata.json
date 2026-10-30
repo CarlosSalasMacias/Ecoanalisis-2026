@@ -1,0 +1,8 @@
+{
+  "name": "EcoAnalytics 2026",
+  "description": "Upload tree species and site data to analyze co-occurrence patterns. The application calculates which species appear together in the same plots and uses the Gemini API to generate a scientific interpretation of the results, complete with discussion and references.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

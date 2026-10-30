@@ -1,0 +1,53 @@
+name: Validación contra R
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Comprobación de tipos
+        run: npm run typecheck
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Instalar paquetes de R de referencia
+        run: Rscript -e 'install.packages(c("vegan", "jsonlite", "labdsv", "iNEXT", "indicspecies"))'
+
+      - name: Generar valores de referencia con R
+        run: Rscript validation/generate_reference.R
+
+      - name: Tests (comparación con R)
+        run: npm test
+
+      - name: Bibliografía contra Crossref
+        env:
+          CHECK_REFERENCES: '1'
+        run: |
+          npx vitest run tests/references.crossref.test.ts --reporter=default --reporter=json --outputFile=crossref.json || status=$?
+          node -e "const r=require('./crossref.json'); console.log('::notice title=Bibliografía::'+r.numPassedTests+' referencias coinciden con Crossref, '+r.numFailedTests+' no coinciden, '+r.numPendingTests+' sin comprobar'); r.testResults.forEach(f=>f.assertionResults.filter(a=>a.status==='failed').forEach(a=>console.log('::error title=Referencia '+a.title+'::'+a.failureMessages.join(' ').split('\\n')[0]))); if (r.numPassedTests + r.numFailedTests === 0) process.exit(1)"
+          exit ${status:-0}
+
+      - name: Guardar valores de referencia generados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: referencias-R
+          path: validation/fixtures/
