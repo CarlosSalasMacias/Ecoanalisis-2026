@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { REFERENCES } from '../services/references';
 
 const enabled = process.env.CHECK_REFERENCES === '1';
-const withDoi = Object.values(REFERENCES).filter(r => r.doi);
+// Los DOI de Zenodo (10.5281) son de DataCite y no están en Crossref.
+const withDoi = Object.values(REFERENCES).filter(r => r.doi && !r.doi.startsWith('10.5281/'));
 
 const norm = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()

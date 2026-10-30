@@ -71,6 +71,11 @@ export const REFERENCES: Record<string, Reference> = {
     key: 'margalef1958', authors: ['Margalef, R.'], year: 1958, title: 'Information theory in ecology',
     container: 'General Systems', volume: '3', pages: '36–71', verification: 'manual',
   },
+  magurran2004: {
+    key: 'magurran2004', authors: ['Magurran, A. E.'], year: 2004, title: 'Measuring biological diversity',
+    container: 'Blackwell Publishing, Oxford', verification: 'pdf',
+    verificationNote: 'Índice de Margalef D = (S − 1)/ln N (pp. 76–77) y equidad de Pielou J′ = H′/ln S (p. 108) comprobados en el PDF (caps. 2–4). Editorial y año: revisar en la portada.',
+  },
   hill1973: {
     key: 'hill1973', authors: ['Hill, M. O.'], year: 1973,
     title: 'Diversity and evenness: a unifying notation and its consequences',
@@ -158,7 +163,42 @@ export const REFERENCES: Record<string, Reference> = {
     title: 'An upland forest continuum in the prairie-forest border region of Wisconsin',
     container: 'Ecology', volume: '32', issue: '3', pages: '476–496', doi: '10.2307/1931725', verification: 'crossref',
   },
+  kruskal1952: {
+    key: 'kruskal1952', authors: ['Kruskal, W. H.', 'Wallis, W. A.'], year: 1952,
+    title: 'Use of ranks in one-criterion variance analysis',
+    container: 'Journal of the American Statistical Association', volume: '47', issue: '260', pages: '583–621',
+    doi: '10.1080/01621459.1952.10483441', verification: 'crossref',
+  },
+  dunn1964: {
+    key: 'dunn1964', authors: ['Dunn, O. J.'], year: 1964, title: 'Multiple comparisons using rank sums',
+    container: 'Technometrics', volume: '6', issue: '3', pages: '241–252', doi: '10.1080/00401706.1964.10490181',
+    verification: 'crossref',
+  },
+  legendre2012: {
+    key: 'legendre2012', authors: ['Legendre, P.', 'Legendre, L.'], year: 2012, title: 'Numerical ecology (3rd English ed.)',
+    container: 'Elsevier, Amsterdam', verification: 'manual',
+    verificationNote: 'Pruebas de permutación (cap. 1). Libro sin DOI en Crossref; revisar los datos antes de publicar.',
+  },
   // --- Biomasa y carbono ---
+  fischer2026: {
+    key: 'fischer2026', authors: ['Fischer, F. J.', 'Chave, J.', 'Zanne, A.', 'et al.'], year: 2026,
+    title: 'Beyond species means – the intraspecific contribution to global wood density variation',
+    container: 'New Phytologist', volume: '249', issue: '6', pages: '2630–2651', doi: '10.1111/nph.70860',
+    verification: 'pdf',
+    verificationNote: 'Comprobado en el PDF: GWDD v.2 (109 626 registros), filtros de los análisis (sección II.1) y DE intraespecífica de 0.068 g cm⁻³ (resumen).',
+  },
+  gwdd2025: {
+    key: 'gwdd2025', authors: ['Fischer, F. J.', 'Chave, J.', 'Zanne, A.', 'et al.'], year: 2025,
+    title: 'Global Wood Density Database v.2 (GWDD v.2) [conjunto de datos]',
+    container: 'Zenodo', doi: '10.5281/zenodo.16919509', verification: 'manual',
+    verificationNote: 'DOI tomado de Fischer et al. (2026). Es un DOI de DataCite (Zenodo), no de Crossref: confirme año y versión (v2.2) en Zenodo.',
+  },
+  rejouMechain2017: {
+    key: 'rejouMechain2017', authors: ['Réjou-Méchain, M.', 'Tanguy, A.', 'Piponiot, C.', 'Chave, J.', 'Hérault, B.'], year: 2017,
+    title: 'BIOMASS: an R package for estimating above-ground biomass and its uncertainty in tropical forests',
+    container: 'Methods in Ecology and Evolution', volume: '8', issue: '9', pages: '1163–1167',
+    doi: '10.1111/2041-210X.12753', verification: 'crossref',
+  },
   chave2005: {
     key: 'chave2005',
     authors: ['Chave, J.', 'Andalo, C.', 'Brown, S.', 'Cairns, M. A.', 'Chambers, J. Q.', 'Eamus, D.', 'Fölster, H.', 'Fromard, F.', 'Higuchi, N.', 'Kira, T.', 'Lescure, J.-P.', 'Nelson, B. W.', 'Ogawa, H.', 'Puig, H.', 'Riéra, B.', 'Yamakura, T.'],
@@ -197,6 +237,12 @@ export const REFERENCES: Record<string, Reference> = {
     container: 'IGES, Hayama, Japan', url: 'https://www.ipcc-nggip.iges.or.jp/public/2006gl/vol4.html',
     verification: 'manual', verificationNote: 'Fracción de carbono 0.47 (Tabla 4.3). Comprobar la tabla antes de publicar.',
   },
+  andrade2008: {
+    key: 'andrade2008', authors: ['Andrade, H. J.', 'Segura, M.', 'Somarriba, E.', 'Villalobos, M.'], year: 2008,
+    title: 'Valoración biofísica y financiera de la fijación de carbono por uso del suelo en fincas cacaoteras indígenas de Talamanca, Costa Rica',
+    container: 'Agroforestería en las Américas', volume: '46', pages: '45–50', verification: 'manual',
+    verificationNote: 'Datos bibliográficos y ecuación de cacao (d30) pendientes de comprobar en el PDF original.',
+  },
   schroth2002: {
     key: 'schroth2002',
     authors: ['Schroth, G.', "D'Angelo, S. A.", 'Teixeira, W. G.', 'Haag, D.', 'Lieberei, R.'], year: 2002,
@@ -209,13 +255,13 @@ export const REFERENCES: Record<string, Reference> = {
 
 /** Referencias que respaldan cada método implementado. */
 export const METHOD_REFERENCES = {
-  cooccurrence: ['veech2013', 'griffith2016', 'benjamini1995'],
+  cooccurrence: ['veech2013', 'griffith2016', 'benjamini1995', 'legendre2012'],
   cca: ['terBraak1986', 'legendre2011', 'vegan'],
-  diversity: ['shannon1948', 'simpson1949', 'pielou1966', 'margalef1958', 'hill1973', 'chao1984', 'chao1987', 'chaoJost2012', 'chaoWangJost2013'],
+  diversity: ['shannon1948', 'simpson1949', 'pielou1966', 'magurran2004', 'hill1973', 'chao1984', 'chao1987', 'chaoJost2012', 'chaoWangJost2013'],
   rarefaction: ['hurlbert1971', 'chao2014', 'hsieh2016', 'chaoJost2012'],
   indval: ['dufrene1997', 'deCaceres2009', 'deCaceres2010', 'benjamini1995'],
   structure: ['curtis1951'],
-  biomass: ['chave2005', 'chave2014', 'segura2006', 'hairiah2011', 'ipcc2006'],
+  biomass: ['chave2005', 'chave2014', 'segura2006', 'andrade2008', 'hairiah2011', 'ipcc2006', 'fischer2026', 'gwdd2025', 'rejouMechain2017', 'kruskal1952', 'dunn1964'],
 } as const;
 
 export type MethodId = keyof typeof METHOD_REFERENCES;

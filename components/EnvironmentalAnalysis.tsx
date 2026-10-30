@@ -56,15 +56,17 @@ const EnvironmentalAnalysis: React.FC<EnvironmentalAnalysisProps> = ({
           </p>
       </div>
 
+      <p className="text-xs text-gray-600">{t.envTestNote}</p>
+
       {analysisKeys.map(key => {
         const { pair, analysis } = allAnalyses[key];
         const effectClass = pair.effect === 'positive' ? 'text-blue-600' : 'text-red-600';
         const effectText = pair.effect === 'positive' ? t.positive : t.negative;
         
         const handleExport = () => {
-            const headers = [t.envFactor, t.cooccurrenceMean, t.controlMean];
-            // FIX: Use the new header function from the translation hook
-            const rows = analysis.map(res => [t.header(res.factor), res.cooccurrenceMean, res.controlMean]);
+            const headers = [t.envFactor, t.cooccurrenceMean, 'n', t.controlMean, 'n', 'p', 'p_adj', t.envTestType];
+            const rows = analysis.map(res => [t.header(res.factor), res.cooccurrenceMean, res.nCooccurrence, res.controlMean, res.nControl,
+                res.pValue ?? 'NA', res.pAdj ?? 'NA', res.exact === null ? '' : res.exact ? 'exacta' : 'Monte Carlo']);
             const dataForCSV = [headers, ...rows.map(r => r.map(c => c ?? 'N/A'))];
             const filename = `environmental-analysis-${pair.speciesA.replace(' ', '_')}-${pair.speciesB.replace(' ', '_')}`;
             exportDataToCSV(dataForCSV, filename);
@@ -95,6 +97,8 @@ const EnvironmentalAnalysis: React.FC<EnvironmentalAnalysisProps> = ({
                     <th scope="col" className="p-3 font-semibold">{t.envFactor}</th>
                     <th scope="col" className="p-3 font-semibold text-center">{t.cooccurrenceMean}</th>
                     <th scope="col" className="p-3 font-semibold text-center">{t.controlMean}</th>
+                    <th scope="col" className="p-3 font-semibold text-center">p</th>
+                    <th scope="col" className="p-3 font-semibold text-center">{t.pAdjValue}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -110,9 +114,11 @@ const EnvironmentalAnalysis: React.FC<EnvironmentalAnalysisProps> = ({
                           {res.cooccurrenceMean}
                         </td>
                       ) : (
-                        <td className="p-3 text-center font-mono">{res.cooccurrenceMean}</td>
+                        <td className="p-3 text-center font-mono">{res.cooccurrenceMean} <span className="text-gray-400">(n = {res.nCooccurrence})</span></td>
                       )}
-                      <td className="p-3 text-center font-mono">{res.controlMean}</td>
+                      <td className="p-3 text-center font-mono">{res.controlMean} <span className="text-gray-400">(n = {res.nControl})</span></td>
+                      <td className="p-3 text-center font-mono">{res.pValue === null ? '—' : res.pValue < 0.001 ? '< 0.001' : res.pValue.toFixed(3)}</td>
+                      <td className={`p-3 text-center font-mono ${res.pAdj !== null && res.pAdj < 0.05 ? 'font-bold text-primary' : ''}`}>{res.pAdj === null ? '—' : res.pAdj < 0.001 ? '< 0.001' : res.pAdj.toFixed(3)}</td>
                     </tr>
                   ))}
                 </tbody>

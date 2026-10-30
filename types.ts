@@ -80,6 +80,14 @@ export interface EnvironmentalFactorAnalysis {
     factor: string;
     cooccurrenceMean: number | string;
     controlMean: number | string; // Sites where only one of the pair is present
+    /** Parcelas con ambas especies y con solo una de ellas que tienen dato de la variable. */
+    nCooccurrence: number;
+    nControl: number;
+    /** Prueba de permutación de la diferencia de medias (null si algún grupo tiene < 2 parcelas). */
+    pValue: number | null;
+    /** p ajustado por Benjamini–Hochberg sobre todas las pruebas (pares × variables). */
+    pAdj: number | null;
+    exact: boolean | null;
 }
 
 /**
@@ -356,6 +364,11 @@ export interface BiomassAnalysisResults {
   equationsUsed: import('./services/biomassEquations').EquationUsage[];
   /** Individuos sin ecuación asignada (no suman biomasa). */
   withoutEquation: number;
+  /** Origen de la densidad de los individuos cuya ecuación la necesita. */
+  densitySources: Record<string, number>;
+  /** Región de la GWDD usada ('global' = mundial), o null si no se usó la GWDD. */
+  woodDensityRegion: string | null;
+  uncertainty: import('./services/carbonUncertainty').CarbonUncertainty;
 }
 
 export interface BiomassConfig {
@@ -363,6 +376,10 @@ export interface BiomassConfig {
   plotInfo: PlotInfo;
   descriptions: Record<string, string>;
   carbonFraction: number;
+  /** Completar densidades faltantes con la GWDD v2.2. */
+  useGWDD: boolean;
+  /** Región de la GWDD ('' = mundial). */
+  gwddRegion: string;
 }
 
 // --- New Ecological Parameters Types ---
@@ -407,8 +424,15 @@ export interface SiteStandCharacteristics {
 }
 
 export interface FullStructuralAnalysis {
+  /** IVI con todas las especies (incluido el cultivo). */
   ivi: SiteStructuralAnalysis;
+  /** IVI solo de los árboles acompañantes (sin cultivo). */
+  iviWithoutCrops: SiteStructuralAnalysis;
   stand: SiteStandCharacteristics;
+  /** Especies tratadas como cultivo (abreviadas). */
+  cropSpecies: string[];
+  /** Número de individuos cuya área basal salió de DAP, D30, D15 o de ninguno. */
+  basalAreaSources: Record<string, number>;
 }
 
 // --- Soil Carbon Types ---

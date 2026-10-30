@@ -227,6 +227,8 @@ const BiomassCalculatorTab: React.FC<BiomassCalculatorTabProps> = ({ results }) 
             </div>
         </div>
 
+        <CarbonUncertaintyPanel results={results} />
+
         <EquationUsagePanel results={results} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -314,6 +316,79 @@ const BiomassCalculatorTab: React.FC<BiomassCalculatorTabProps> = ({ results }) 
 };
 
 
+const fmtP = (p: number) => (p < 0.001 ? '< 0.001' : p.toFixed(3));
+const fmtCI = (ci: [number, number] | null) => (ci ? `${ci[0].toFixed(2)} – ${ci[1].toFixed(2)}` : '—');
+
+/** Carbono por tipo de vegetación con su incertidumbre, y comparación entre tipos. */
+const CarbonUncertaintyPanel: React.FC<{ results: BiomassAnalysisResults }> = ({ results }) => {
+    const t = useTranslations();
+    const u = results.uncertainty;
+    if (!u || u.byType.length === 0) return null;
+    const exportPlots = () => {
+        const rows = u.byType.flatMap(b => b.plotValues.map(v => [b.type, v.plot, v.carbonPerHa.toFixed(4)]));
+        exportDataToCSV([t.vegetationType, t.plotColumnHeader, 'Mg C/ha'], rows, 'carbono_por_parcela');
+    };
+    return (
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <div className="flex justify-between items-center mb-3">
+                <h4 className="text-md font-bold text-secondary uppercase tracking-tight">{t.carbonUncertaintyTitle}</h4>
+                <button onClick={exportPlots} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded-md" title={t.exportCSV}><ExportIcon className="h-4 w-4"/></button>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="min-w-full text-xs text-left text-gray-600">
+                    <thead className="bg-gray-50 uppercase tracking-wider border-b">
+                        <tr>
+                            <th className="p-2">{t.vegetationType}</th>
+                            <th className="p-2 text-right">{t.plotsColumn}</th>
+                            <th className="p-2 text-right">{t.meanCarbonPerHa}</th>
+                            <th className="p-2 text-right">{t.seColumn}</th>
+                            <th className="p-2 text-right">{t.ciSampling}</th>
+                            <th className="p-2 text-right">{t.ciTotal}</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {u.byType.map(b => (
+                            <tr key={b.type}>
+                                <td className="p-2">{b.type}</td>
+                                <td className="p-2 text-right">{b.nPlots}{b.emptyPlots > 0 ? ` (${b.emptyPlots} ${t.emptyPlotsShort})` : ''}</td>
+                                <td className="p-2 text-right font-semibold">{b.mean.toFixed(2)}</td>
+                                <td className="p-2 text-right">{b.nPlots > 1 ? b.se.toFixed(2) : '—'}</td>
+                                <td className="p-2 text-right">{fmtCI(b.ciSampling)}</td>
+                                <td className="p-2 text-right">{fmtCI(b.ciTotal)}</td>
+                            </tr>
+                        ))}
+                        <tr className="bg-gray-50 font-semibold">
+                            <td className="p-2">{t.wholeStudy}</td>
+                            <td className="p-2 text-right">{u.byType.reduce((a, b) => a + b.nPlots, 0)}</td>
+                            <td className="p-2 text-right">{u.overall.carbonPerHa.toFixed(2)}</td>
+                            <td className="p-2 text-right">—</td>
+                            <td className="p-2 text-right">—</td>
+                            <td className="p-2 text-right">{fmtCI(u.overall.ciTotal)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            {u.comparison && (
+                <div className="mt-3 text-xs text-gray-700">
+                    <p className="font-semibold">{t.kruskalLabel}: H = {u.comparison.kruskal.H.toFixed(2)}, gl = {u.comparison.kruskal.df}, p = {fmtP(u.comparison.kruskal.p)}</p>
+                    <ul className="list-disc pl-5 mt-1">
+                        {u.comparison.dunn.map(d => (
+                            <li key={`${d.a}-${d.b}`}>{d.a} vs {d.b}: z = {d.z.toFixed(2)}, p = {fmtP(d.p)}, {t.pAdjShort} = {fmtP(d.pAdj)}</li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            <ul className="mt-3 text-xs text-gray-600 list-disc pl-5 space-y-1">
+                <li>{t.carbonUncertaintyNote.replace('{n}', String(u.nSimulations)).replace('{seed}', String(u.seed))}</li>
+                {u.equationsWithoutModelError.length > 0 && <li className="text-amber-800">{t.noModelErrorNote} {u.equationsWithoutModelError.map(e => results.equationsUsed.find(x => x.equation === e)?.label ?? e).join('; ')}.</li>}
+                {Object.keys(results.densitySources ?? {}).length > 0 && (
+                    <li>{t.densitySourcesLabel} {Object.entries(results.densitySources).map(([k, n]) => `${k}: ${n}`).join(', ')}{results.woodDensityRegion ? ` (GWDD v2.2, ${results.woodDensityRegion === 'global' ? t.gwddWorld : results.woodDensityRegion})` : ''}.</li>
+                )}
+            </ul>
+        </div>
+    );
+};
+
 const DIAMETER_LABEL: Record<string, string> = { dbh: 'DAP (1,3 m)', d15: 'd15 (15 cm)', d30: 'd30 (30 cm)' };
 
 /** Ecuaciones aplicadas y avisos que deben revisarse antes de publicar. */
@@ -354,6 +429,12 @@ const EquationUsagePanel: React.FC<{ results: BiomassAnalysisResults }> = ({ res
                 {usage.some(u => !u.verified) && <li className="text-red-700">{t.unverifiedEquationWarning}</li>}
                 {usage.some(u => u.diameter !== 'dbh') && <li>{t.diameterWarning}</li>}
                 {usage.some(u => u.outsideRange > 0) && <li>{t.outsideRangeWarning}</li>}
+                {usage.some(u => Object.keys(u.missing ?? {}).length > 0) && (
+                    <li className="text-amber-800">{t.missingInputsWarning}{' '}
+                        {usage.filter(u => Object.keys(u.missing ?? {}).length > 0).map(u =>
+                            `${u.label}: ${Object.entries(u.missing).map(([col, n]) => `${n} sin «${col}»`).join(', ')}`).join('; ')}
+                    </li>
+                )}
                 {results.withoutEquation > 0 && <li>{t.withoutEquationWarning.replace('{n}', String(results.withoutEquation))}</li>}
             </ul>
         </div>

@@ -95,3 +95,44 @@ describe('deterministic methodology', () => {
     expect(m.citedKeys).toEqual(expect.arrayContaining(['segura2006', 'ipcc2006']));
   });
 });
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parseData, runStructuralAnalysis } from '../services/analysisService';
+
+describe('methodology: crops, wood density, uncertainty and comparisons', () => {
+  const db = JSON.parse(readFileSync(resolve(__dirname, '../public/data/gwdd-v2.2-wood-density.json'), 'utf8'));
+  const grid = [
+    ['Tipo de vegetación', 'Parcela', 'Nombre científico (Completo)', 'N_Científico (Abreviado)', 'DAP (cm)', 'D30 (cm)', 'Altura (m)', 'Densidad (g/cm3)'],
+    ['SAF', 'P1', 'Theobroma cacao', 'The cac', '', '12', '3', ''],
+    ['SAF', 'P1', 'Cordia alliodora', 'Cor all', '30', '', '18', ''],
+    ['SAF', 'P2', 'Cordia alliodora', 'Cor all', '28', '', '17', ''],
+    ['Bosque', 'P1', 'Inga edulis', 'Ing edu', '35', '', '20', ''],
+    ['Bosque', 'P2', 'Inga edulis', 'Ing edu', '40', '', '22', '0.6'],
+  ];
+  const data = parseData(grid, true) as any[];
+  const plotInfo = { SAF: { numPlots: '2', plotArea: '500' }, Bosque: { numPlots: '2', plotArea: '500' } };
+  const biomass = runBiomassAnalysis(data, { SAF: 'chave2014', Bosque: 'chave2014' }, plotInfo, grid[0], 0.47,
+    { woodDensity: { db, region: 'South America' }, nSimulations: 100 });
+  const m = buildMethodology({
+    lang: 'es', nPlots: 4, nVegetationTypes: 2, nSpecies: 3, nIndividuals: 5, hasEnvironmentalData: true,
+    structure: runStructuralAnalysis(data, null), cca: null, biomass, siteDescriptions: {},
+  });
+
+  it('describes both IVIs and the D30 basal area', () => {
+    expect(m.markdown).toContain('sin las especies de cultivo (*The cac*)');
+    expect(m.markdown).toContain('diámetro a 30 cm (1 individuos)');
+  });
+
+  it('describes GWDD use, Monte Carlo uncertainty, the comparison test and the environmental permutation test', () => {
+    expect(m.markdown).toContain('Global Wood Density Database v.2.2');
+    expect(m.markdown).toContain('«South America»');
+    expect(m.markdown).toContain('100 simulaciones de Monte Carlo');
+    expect(m.markdown).toContain('RSE (σ) de la ecuación 4 en Chave et al. (2014)');
+    expect(m.markdown).toContain('Cacao, d30 (Andrade et al., 2008)');
+    expect(m.markdown).toContain('Kruskal y Wallis (1952)');
+    expect(m.markdown).toContain('prueba de permutación bilateral');
+    ['fischer2026', 'gwdd2025', 'rejouMechain2017', 'kruskal1952', 'dunn1964', 'magurran2004', 'legendre2012']
+      .forEach(k => expect(m.citedKeys).toContain(k));
+  });
+});

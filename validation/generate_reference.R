@@ -146,5 +146,46 @@ if (has("indicspecies")) {
 }
 write_fixture(iv, "indval")
 
+# ------------------------------------------- Distribuciones y no paramétricas ----
+cat("Distribuciones y pruebas no paramétricas...\n")
+dist <- list(
+  pnorm = lapply(c(-6, -2.5, -1.96, -0.3, 0, 0.7, 1.645, 3.2), function(x) list(x = x, p = pnorm(x))),
+  pchisq = lapply(list(c(0.5, 1), c(3.84, 1), c(7.2, 3), c(15, 4), c(40, 10), c(0.01, 2)),
+                  function(v) list(x = v[1], df = v[2], upper = pchisq(v[1], v[2], lower.tail = FALSE))),
+  pt = lapply(list(c(-3, 2), c(0.5, 4), c(2.1, 9), c(-1.2, 30)), function(v) list(t = v[1], df = v[2], p = pt(v[1], v[2]))),
+  qt = lapply(c(1, 2, 3, 4, 5, 9, 19, 29, 100), function(df) list(df = df, q = qt(0.975, df)))
+)
+# Carbono por parcela (Mg C/ha) en tres sistemas, con empates.
+kw_groups <- list(Bosque = c(83.1, 75.4, 90.2, 68.0, 75.4), SAF = c(14.2, 18.9, 11.0, 14.2, 20.5, 16.1), Pasto = c(0.9, 1.4, 0.6, 1.1))
+kw <- kruskal.test(kw_groups)
+x <- unlist(kw_groups); g <- rep(names(kw_groups), lengths(kw_groups)); N <- length(x)
+rk <- rank(x); tt <- table(x); ties <- sum(tt^3 - tt)
+mr <- tapply(rk, g, mean)[names(kw_groups)]; nn <- lengths(kw_groups)
+s2 <- N * (N + 1) / 12 - ties / (12 * (N - 1))
+dunn <- list()
+for (i in 1:(length(kw_groups) - 1)) for (j in (i + 1):length(kw_groups)) {
+  z <- (mr[i] - mr[j]) / sqrt(s2 * (1 / nn[i] + 1 / nn[j]))
+  dunn[[length(dunn) + 1]] <- list(a = names(kw_groups)[i], b = names(kw_groups)[j], z = unname(z), p = unname(2 * pnorm(-abs(z))))
+}
+padj <- p.adjust(sapply(dunn, `[[`, "p"), "BH")
+for (k in seq_along(dunn)) dunn[[k]]$pAdj <- padj[k]
+if (has("dunn.test")) {
+  dt <- dunn.test::dunn.test(x, g, method = "bh", kw = FALSE, table = FALSE, list = FALSE, altp = TRUE)
+  versions$dunn.test <- as.character(packageVersion("dunn.test"))
+  dist$dunnTestPackage <- list(comparisons = dt$comparisons, z = dt$Z, p = dt$altP, pAdj = dt$altP.adjusted)
+}
+# Prueba de permutación exacta de la diferencia de medias (enumeración completa con combn).
+perm_exact <- function(a, b) {
+  all <- c(a, b); obs <- abs(mean(a) - mean(b))
+  cmb <- combn(length(all), length(a))
+  st <- apply(cmb, 2, function(i) abs(mean(all[i]) - mean(all[-i])))
+  list(a = a, b = b, diff = mean(a) - mean(b), p = mean(st >= obs - 1e-9 * max(1, obs)), n = ncol(cmb))
+}
+perm <- list(perm_exact(c(5.8, 6.1, 5.5, 6.4), c(4.9, 5.2, 5.0, 5.6, 5.1)),
+             perm_exact(c(12, 15, 15, 18, 20, 21), c(14, 15, 16, 17)),
+             perm_exact(c(1.2, 1.2, 1.3), c(1.2, 1.3, 1.2, 1.3)))
+write_fixture(list(distributions = dist, kruskal = list(groups = kw_groups, H = unname(kw$statistic),
+  df = unname(kw$parameter), p = kw$p.value), dunn = dunn, permutation = perm), "nonparametric")
+
 write_fixture(versions, "versions")
 cat("Listo.\n")

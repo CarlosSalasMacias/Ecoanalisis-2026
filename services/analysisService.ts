@@ -6,6 +6,8 @@ import { indicatorSpecies } from './stats/indval';
 import { cca, ccaPermutationTest, groupEllipses } from './stats/cca';
 import { rarefactionExtrapolation } from './stats/inext';
 import { DEFAULT_SEED } from './stats/random';
+import { permutationTestMeans } from './stats/nonparametric';
+import { adjustBH } from './stats/special';
 /** Parámetros fijos de los análisis; la metodología generada los lee de aquí. */
 export const ANALYSIS_SETTINGS = {
     seed: DEFAULT_SEED,
@@ -14,9 +16,13 @@ export const ANALYSIS_SETTINGS = {
     indval: { nPermutations: 999 },
     cca: { nPermutations: 999, ellipseConf: 0.95 },
     rarefaction: { nBoot: 100, conf: 0.95 },
+    carbon: { nSimulations: 1000 },
+    environment: { maxExact: 100000, nPermutations: 9999 },
 } as const;
 
-import { EQUATIONS, EquationUsage, computeAGB, equationForRow, isOutsideRange } from './biomassEquations';
+import { lookupWoodDensity, WoodDensityDB } from './woodDensity';
+import { carbonUncertainty, DENSITY_SD_COLUMN } from './carbonUncertainty';
+import { DENSITY_USED_COLUMN, EQUATIONS, EquationUsage, computeAGB, equationForRow, isCrop, isOutsideRange, missingInputs } from './biomassEquations';
 import { SpeciesData, SiteData, CooccurrenceMatrix, CooccurrenceResult, SignificantPair, EnvironmentalAnalysisResult, AllEnvironmentalAnalyses, SingleNicheData, SiteNicheData, StructuralAnalysisResult, SpeciesStructuralMetrics, CorrelationMatrix, CCACoordinates, EllipseData, IndValResult, SiteStructuralAnalysis, SiteCooccurrenceMatrix, ForestDataRow, EquationSelection, PlotInfo, SummaryRow, BiomassAnalysisResults, SiteEcologicalParameters, FullStructuralAnalysis, SiteStandCharacteristics, PlotSummaryRow, RarefactionData, RarefactionCurve, SingleCCAPlotData, CooccurrenceResult as _CR } from '../types';
 
 /**
@@ -47,16 +53,16 @@ export function parseData(data: string[][], isSpeciesData: boolean): SpeciesData
   const rows = data.slice(1);
 
   if (isSpeciesData) {
-    const dapIndex = headers.findIndex(h => h.toLowerCase() === 'dap (cm)');
-    if (dapIndex === -1) {
-      throw new Error("Required header 'DAP (cm)' not found.");
+    const diameterHeaders = ['dap (cm)', 'd30 (cm)', 'd15 (cm)'];
+    if (!headers.some(h => diameterHeaders.includes(h.toLowerCase()))) {
+      throw new Error("Falta una columna de diámetro: 'DAP (cm)', 'D30 (cm)' o 'D15 (cm)'.");
     }
 
     return rows.map((row) => {
       const entry: any = {};
       headers.forEach((header, index) => {
         const value = row[index] || '';
-        const numericHeaders = ['Latitud', 'Longitud', 'Altitud', 'Precisión', 'Densidad (g/cm3)', 'DAP (cm)', 'Altura (m)'];
+        const numericHeaders = ['Latitud', 'Longitud', 'Altitud', 'Precisión', 'Densidad (g/cm3)', 'DAP (cm)', 'D30 (cm)', 'D15 (cm)', 'Altura (m)'];
         
         const trimmedValue = String(value).trim();
         if (numericHeaders.includes(header)) {
@@ -70,8 +76,10 @@ export function parseData(data: string[][], isSpeciesData: boolean): SpeciesData
             entry[header] = value;
         }
       });
-      const dap = entry['DAP (cm)'];
-      entry['Área basal (cm²)'] = calculateBasalArea(dap);
+      // Área basal con el DAP; si el individuo solo tiene diámetro a 30 o 15 cm (cultivos), con ese.
+      const source = (['DAP (cm)', 'D30 (cm)', 'D15 (cm)'] as const).find(c => typeof entry[c] === 'number' && entry[c] > 0);
+      entry['Área basal (cm²)'] = source ? calculateBasalArea(entry[source]) : 0;
+      entry['Diámetro del área basal'] = source ? source.replace(' (cm)', '') : '';
       
       const scientificName = entry['Nombre científico (Completo)'];
       if (scientificName && typeof scientificName === 'string' && scientificName.includes(' ')) {
@@ -401,20 +409,25 @@ function analyzeEnvironmentalFactors(
     const analysis: EnvironmentalAnalysisResult = [];
 
     variables.forEach(variable => {
-        const getMean = (locSet: Set<string>): number | string => {
-            const values = Array.from(locSet)
-                .map(locKey => siteData[locKey]?.[variable]) 
-                .filter(val => typeof val === 'number') as number[];
-            
-            if (values.length === 0) return 'N/A';
-            const sum = values.reduce((acc, val) => acc + val, 0);
-            return parseFloat((sum / values.length).toFixed(2));
-        };
-
-        const cooccurrenceMean = getMean(cooccurrenceLocations);
-        const controlMean = getMean(controlLocations);
-        
-        analysis.push({ factor: variable, cooccurrenceMean, controlMean });
+        const valuesOf = (locSet: Set<string>): number[] => Array.from(locSet)
+            .map(locKey => siteData[locKey]?.[variable])
+            .filter(val => typeof val === 'number') as number[];
+        const meanOf = (v: number[]) => v.length ? parseFloat((v.reduce((a, b) => a + b, 0) / v.length).toFixed(2)) : 'N/A';
+        const a = valuesOf(cooccurrenceLocations);
+        const b = valuesOf(controlLocations);
+        const test = a.length >= 2 && b.length >= 2
+            ? permutationTestMeans(a, b, { ...ANALYSIS_SETTINGS.environment, seed: ANALYSIS_SETTINGS.seed })
+            : null;
+        analysis.push({
+            factor: variable,
+            cooccurrenceMean: meanOf(a),
+            controlMean: meanOf(b),
+            nCooccurrence: a.length,
+            nControl: b.length,
+            pValue: test ? test.p : null,
+            pAdj: null,
+            exact: test ? test.exact : null,
+        });
     });
 
     return analysis;
@@ -438,6 +451,11 @@ export function analyzeAllEnvironmentalFactors(
             allAnalyses[pairKey] = { pair, analysis };
         }
     });
+
+    // Corrección por comparaciones múltiples sobre todas las pruebas (pares × variables).
+    const tested = Object.values(allAnalyses).flatMap(a => a.analysis).filter(r => r.pValue !== null);
+    const adjusted = adjustBH(tested.map(r => r.pValue as number));
+    tested.forEach((r, i) => { r.pAdj = adjusted[i]; });
 
     return allAnalyses;
 }
@@ -638,24 +656,37 @@ export const calculateStandCharacteristics = (allSpeciesData: SpeciesData[], plo
  * @returns A nested object containing both IVI and stand characteristics results.
  */
 export function runStructuralAnalysis(allSpeciesData: SpeciesData[], plotInfo: PlotInfo | null): FullStructuralAnalysis {
-    if (allSpeciesData.length === 0) {
-        return { ivi: {}, stand: {} };
-    }
-    
-    const iviResults: SiteStructuralAnalysis = {};
+    const empty = { ivi: {}, iviWithoutCrops: {}, stand: {}, cropSpecies: [], basalAreaSources: {} };
+    if (allSpeciesData.length === 0) return empty;
+
     const standResults = calculateStandCharacteristics(allSpeciesData, plotInfo);
-
-    // IVI General Analysis
-    iviResults['General'] = calculateIVIMetrics(allSpeciesData);
-
-    // IVI Per-Site Analysis
     const sites = Array.from(new Set(allSpeciesData.map(d => d['Tipo de vegetación']).filter(Boolean)));
-    sites.forEach(site => {
-        const siteData = allSpeciesData.filter(d => d['Tipo de vegetación'] === site);
-        iviResults[site] = calculateIVIMetrics(siteData);
+
+    // IVI general y por tipo de vegetación, para un subconjunto de individuos.
+    const iviFor = (rows: SpeciesData[]): SiteStructuralAnalysis => {
+        const out: SiteStructuralAnalysis = { General: calculateIVIMetrics(rows) };
+        sites.forEach(site => {
+            const siteRows = rows.filter(d => d['Tipo de vegetación'] === site);
+            if (siteRows.length) out[site] = calculateIVIMetrics(siteRows);
+        });
+        return out;
+    };
+
+    const crops = allSpeciesData.filter(d => isCrop(d as ForestDataRow));
+    const cropSpecies = Array.from(new Set(crops.map(d => d['N_Científico (Abreviado)']).filter(Boolean))).sort();
+    const basalAreaSources: Record<string, number> = {};
+    allSpeciesData.forEach(d => {
+        const src = String(d['Diámetro del área basal'] || 'ninguno');
+        basalAreaSources[src] = (basalAreaSources[src] ?? 0) + 1;
     });
 
-    return { ivi: iviResults, stand: standResults };
+    return {
+        ivi: iviFor(allSpeciesData),
+        iviWithoutCrops: iviFor(allSpeciesData.filter(d => !isCrop(d as ForestDataRow))),
+        stand: standResults,
+        cropSpecies,
+        basalAreaSources,
+    };
 }
 
 
@@ -928,12 +959,55 @@ export { EQUATION_OPTIONS } from './biomassEquations';
 /** Default carbon fraction of dry biomass (IPCC 2006, Vol. 4, Table 4.3). */
 export const DEFAULT_CARBON_FRACTION = 0.47;
 
+export interface WoodDensityOptions {
+    db: WoodDensityDB;
+    /** Región de la GWDD que se usa primero (si no, la media mundial). */
+    region?: string;
+}
+
+/**
+ * Densidad que se usará para cada individuo: la de la tabla si existe; si no, la de la GWDD
+ * (especie → género → familia); y si tampoco, la media del tipo de vegetación.
+ * DE: 0.068 g cm⁻³ (variación dentro de la especie, Fischer et al. 2026) para valores de especie o
+ * del usuario; mayor para medias de género o familia (ver woodDensity.ts).
+ */
+const resolveDensities = (data: ForestDataRow[], wd?: WoodDensityOptions): ForestDataRow[] => {
+    const INTRA_SD = wd?.db.intraspecificSD ?? 0.068;
+    const out = data.map(row => {
+        const own = Number(String(row['Densidad (g/cm3)'] ?? '').replace(',', '.'));
+        if (own > 0) {
+            return { ...row, [DENSITY_USED_COLUMN]: own, [DENSITY_SD_COLUMN]: INTRA_SD, 'Fuente densidad': 'usuario' };
+        }
+        const match = wd ? lookupWoodDensity(wd.db, String(row['Nombre científico (Completo)'] ?? ''), String(row['Familia'] ?? ''), wd.region) : null;
+        if (match) {
+            const where = match.region === 'global' ? 'GWDD v2.2, mundial' : `GWDD v2.2, ${match.region}`;
+            return { ...row, [DENSITY_USED_COLUMN]: match.value, [DENSITY_SD_COLUMN]: match.sd, 'Fuente densidad': `${match.level} (${where}, n = ${match.n})` };
+        }
+        return { ...row, [DENSITY_USED_COLUMN]: null, [DENSITY_SD_COLUMN]: null, 'Fuente densidad': '' };
+    });
+    // Último recurso: media de las densidades conocidas del mismo tipo de vegetación.
+    const byType: Record<string, number[]> = {};
+    out.forEach(r => {
+        const v = r[DENSITY_USED_COLUMN];
+        if (typeof v === 'number') (byType[String(r['Tipo de vegetación'])] ??= []).push(v);
+    });
+    return out.map(r => {
+        if (typeof r[DENSITY_USED_COLUMN] === 'number') return r;
+        const vals = byType[String(r['Tipo de vegetación'])];
+        if (!vals?.length) return r;
+        const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const sd = vals.length > 1 ? Math.sqrt(vals.reduce((a, v) => a + (v - m) ** 2, 0) / (vals.length - 1)) : INTRA_SD;
+        return { ...r, [DENSITY_USED_COLUMN]: m, [DENSITY_SD_COLUMN]: Math.hypot(sd, INTRA_SD), 'Fuente densidad': 'media del tipo de vegetación' };
+    });
+};
+
 const processBiomassData = (
     data: ForestDataRow[],
     selections: EquationSelection,
-    carbonFraction: number
+    carbonFraction: number,
+    wd?: WoodDensityOptions,
 ): ForestDataRow[] => {
-    return data.map(row => {
+    return resolveDensities(data, wd).map(row => {
         const equation = equationForRow(row, selections);
         const agb_kg = equation ? computeAGB(equation, row) : null;
         const agb_mg = agb_kg !== null ? agb_kg / 1000 : null;
@@ -947,6 +1021,18 @@ const processBiomassData = (
     });
 };
 
+/** Número de individuos por origen de la densidad, solo entre los que la necesitan. */
+const summarizeDensitySources = (data: ForestDataRow[]): Record<string, number> => {
+    const out: Record<string, number> = {};
+    data.forEach(r => {
+        const eq = EQUATIONS[String(r['Ecuación'])];
+        if (!eq?.needsDensity) return;
+        const src = String(r['Fuente densidad'] || 'sin densidad').split(' (')[0];
+        out[src] = (out[src] ?? 0) + 1;
+    });
+    return out;
+};
+
 /** Qué ecuaciones se usaron, en cuántos individuos y cuántos quedan fuera del rango de calibración. */
 const summarizeEquationUsage = (data: ForestDataRow[]): EquationUsage[] => {
     const usage: Record<string, EquationUsage> = {};
@@ -956,10 +1042,14 @@ const summarizeEquationUsage = (data: ForestDataRow[]): EquationUsage[] => {
         const eq = EQUATIONS[id];
         usage[id] ??= {
             equation: id, label: eq.label, reference: eq.reference, verified: eq.verified,
-            diameter: eq.diameter, trees: 0, computed: 0, outsideRange: 0,
+            diameter: eq.diameter, trees: 0, computed: 0, outsideRange: 0, missing: {},
         };
         usage[id].trees++;
         if (typeof row['AGB_Mg'] === 'number') usage[id].computed++;
+        else {
+            const miss = missingInputs(id, row);
+            if (miss) usage[id].missing[miss] = (usage[id].missing[miss] ?? 0) + 1;
+        }
         if (isOutsideRange(id, row)) usage[id].outsideRange++;
     });
     return Object.values(usage).sort((a, b) => b.trees - a.trees);
@@ -1091,11 +1181,20 @@ export function runBiomassAnalysis(
   equationSelections: EquationSelection,
   plotInfo: PlotInfo,
   originalHeaders: string[],
-  carbonFraction: number = DEFAULT_CARBON_FRACTION
+  carbonFraction: number = DEFAULT_CARBON_FRACTION,
+  options: { woodDensity?: WoodDensityOptions; nSimulations?: number } = {},
 ): BiomassAnalysisResults {
-  const processedData = processBiomassData(speciesData, equationSelections, carbonFraction);
+  const processedData = processBiomassData(speciesData, equationSelections, carbonFraction, options.woodDensity);
   const { summary, totals, summaryByPlot } = calculateSummaryAndTotals(processedData, plotInfo);
   const equationsUsed = summarizeEquationUsage(processedData);
   const withoutEquation = processedData.filter(r => !r['Ecuación']).length;
-  return { summary, summaryByPlot, totals, processedData, originalHeaders, carbonFraction, equationsUsed, withoutEquation };
+  const uncertainty = carbonUncertainty(processedData, plotInfo, carbonFraction, {
+      nSimulations: options.nSimulations ?? ANALYSIS_SETTINGS.carbon.nSimulations, seed: ANALYSIS_SETTINGS.seed,
+  });
+  return {
+      summary, summaryByPlot, totals, processedData, originalHeaders, carbonFraction, equationsUsed, withoutEquation,
+      densitySources: summarizeDensitySources(processedData),
+      woodDensityRegion: options.woodDensity ? (options.woodDensity.region || 'global') : null,
+      uncertainty,
+  };
 }

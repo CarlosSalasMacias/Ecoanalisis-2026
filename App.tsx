@@ -4,9 +4,11 @@ import { BiomassConfig, SpeciesData, SiteCooccurrenceMatrix, SignificantPair, Al
 import { parseData, parseSiteData, runCooccurrenceAnalysis, getSignificantPairs, analyzeAllEnvironmentalFactors, calculateSpeciesEnvironmentalNiche, runStructuralAnalysis, runCCAAnalysis, calculateEcologicalParameters, runIndValAnalysis, runBiomassAnalysis, calculateRarefactionData } from './services/analysisService';
 import { generateFinalInterpretation, hasApiKeyConfigured, getApiKey } from './services/geminiService';
 import { buildDossier } from './services/report/dossier';
+import { loadWoodDensityDB } from './services/woodDensity';
 import { AuditIssues, auditInterpretation, buildInterpretationPrompt } from './services/report/aiReport';
 import { buildMethodology } from './services/report/methods';
 import AuditPanel from './components/AuditPanel';
+import EnvironmentalAnalysis from './components/EnvironmentalAnalysis';
 import { generateMethodologyDocx, generateInterpretationDocx } from './services/docxGenerator';
 import DataInput from './components/DataInput';
 import CooccurrenceTable from './components/CooccurrenceTable';
@@ -134,7 +136,11 @@ const App: React.FC = () => {
                 Promise.resolve(runStructuralAnalysis(speciesData, isBiomassAnalysisEnabled && biomassConfig ? biomassConfig.plotInfo : null)),
                 Promise.resolve(calculateEcologicalParameters(speciesData)),
                 Promise.resolve(runIndValAnalysis(speciesData)),
-                isBiomassAnalysisEnabled && biomassConfig ? Promise.resolve(runBiomassAnalysis(speciesData as ForestDataRow[], biomassConfig.selections, biomassConfig.plotInfo, speciesGridData[0], biomassConfig.carbonFraction)) : Promise.resolve(null),
+                isBiomassAnalysisEnabled && biomassConfig
+                    ? (biomassConfig.useGWDD ? loadWoodDensityDB() : Promise.resolve(null)).then(db =>
+                        runBiomassAnalysis(speciesData as ForestDataRow[], biomassConfig.selections, biomassConfig.plotInfo, speciesGridData[0], biomassConfig.carbonFraction,
+                            { woodDensity: db ? { db, region: biomassConfig.gwddRegion || undefined } : undefined }))
+                    : Promise.resolve(null),
                 Promise.resolve(calculateRarefactionData(speciesData))
             ]);
 
@@ -242,6 +248,7 @@ const App: React.FC = () => {
                 nSpecies: species.size,
                 nIndividuals: speciesData.length,
                 hasEnvironmentalData: siteGridData.length > 1,
+                structure: structuralAnalysis,
                 cca: ccaPlotData ? ccaPlotData['General'] : null,
                 biomass: biomassResults,
                 siteDescriptions: biomassConfig?.descriptions ?? {},
@@ -250,7 +257,7 @@ const App: React.FC = () => {
         } catch (e: any) {
             setError(`${t.methodologyError} ${e.message || t.unknownMethodologyError}`);
         }
-    }, [t, biomassConfig, language, speciesGridData, siteGridData, ccaPlotData, biomassResults]);
+    }, [t, biomassConfig, language, speciesGridData, siteGridData, ccaPlotData, biomassResults, structuralAnalysis]);
     
     const [isGeneratingMethodologyDocx, setIsGeneratingMethodologyDocx] = useState(false);
     const handleExportMethodologyDocx = useCallback(async () => {
@@ -443,7 +450,10 @@ const App: React.FC = () => {
 
                             <div className="mt-4">
                                 {activeTab === 'cooccurrence' && cooccurrenceMatrix && (
-                                    <CooccurrenceTable matrix={cooccurrenceMatrix} sites={vegetationTypes} selectedSite={coocSelectedSite} onSiteChange={setCoocSelectedSite} />
+                                    <div className="space-y-10">
+                                        <CooccurrenceTable matrix={cooccurrenceMatrix} sites={vegetationTypes} selectedSite={coocSelectedSite} onSiteChange={setCoocSelectedSite} />
+                                        {siteGridData.length > 1 && allEnvironmentalAnalyses && <EnvironmentalAnalysis allAnalyses={allEnvironmentalAnalyses} />}
+                                    </div>
                                 )}
                                 {activeTab === 'biomass' && biomassResults && (
                                     <BiomassCalculatorTab results={biomassResults} />
