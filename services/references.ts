@@ -187,11 +187,15 @@ export const REFERENCES: Record<string, Reference> = {
     verification: 'pdf',
     verificationNote: 'Comprobado en el PDF: GWDD v.2 (109 626 registros), filtros de los análisis (sección II.1) y DE intraespecífica de 0.068 g cm⁻³ (resumen).',
   },
-  gwdd2025: {
-    key: 'gwdd2025', authors: ['Fischer, F. J.', 'Chave, J.', 'Zanne, A.', 'et al.'], year: 2025,
-    title: 'Global Wood Density Database v.2 (GWDD v.2) [conjunto de datos]',
-    container: 'Zenodo', doi: '10.5281/zenodo.16919509', verification: 'manual',
-    verificationNote: 'DOI tomado de Fischer et al. (2026). Es un DOI de DataCite (Zenodo), no de Crossref: confirme año y versión (v2.2) en Zenodo.',
+  gwdd2026: {
+    key: 'gwdd2026',
+    authors: ['Fischer, F. J.', 'Chave, J.', 'Zanne, A.', 'Jucker, T.', 'Fajardo, A.', 'Fayolle, A.', 'Ferreira de Lima, R. A.',
+      'Vieilledent, G.', 'Beeckman, H.', 'Hubau, W.', 'De Mil, T.', 'Wallenus, D.', 'Aldana, A. M.', 'Alvarez-Davila, E.',
+      'Alves, L.', 'Apgaua, D. M. G.', 'Arcanjo, F.', 'Bastin, J.-F.', 'Bilous, A.', '…', 'Zieminska, K.'],
+    year: 2026,
+    title: 'Global Wood Density Database v.2 (GWDD v.2) (Version v2.2 (with metadata)) [Dataset]',
+    container: 'Zenodo', doi: '10.5281/zenodo.20815517', verification: 'manual',
+    verificationNote: 'Cita, versión (v2.2) y licencia (CC BY 4.0) tomadas de la página de Zenodo. DOI de DataCite, no de Crossref, por eso no entra en la comprobación automática.',
   },
   rejouMechain2017: {
     key: 'rejouMechain2017', authors: ['Réjou-Méchain, M.', 'Tanguy, A.', 'Piponiot, C.', 'Chave, J.', 'Hérault, B.'], year: 2017,
@@ -221,7 +225,7 @@ export const REFERENCES: Record<string, Reference> = {
     title: 'Allometric models for estimating aboveground biomass of shade trees and coffee bushes grown together',
     container: 'Agroforestry Systems', volume: '68', issue: '2', pages: '143–150', doi: '10.1007/s10457-006-9005-x',
     verification: 'pdf',
-    verificationNote: 'Tabla 3, ecuaciones 3 y 4 (kg planta⁻¹; d15 en cm, h en m; d15 0.3–7.4 cm, h 0.3–3.3 m) comprobadas en el PDF. Volumen y páginas confirmados en Crossref.',
+    verificationNote: 'Tabla 3, ecuaciones 3, 4 y 5 (kg planta⁻¹; d15 en cm, h en m; d15 0.3–7.4 cm, h 0.3–3.3 m) comprobadas en el PDF. Volumen y páginas confirmados en Crossref.',
   },
   hairiah2011: {
     key: 'hairiah2011',
@@ -241,7 +245,7 @@ export const REFERENCES: Record<string, Reference> = {
     key: 'andrade2008', authors: ['Andrade, H. J.', 'Segura, M.', 'Somarriba, E.', 'Villalobos, M.'], year: 2008,
     title: 'Valoración biofísica y financiera de la fijación de carbono por uso del suelo en fincas cacaoteras indígenas de Talamanca, Costa Rica',
     container: 'Agroforestería en las Américas', volume: '46', pages: '45–50', verification: 'manual',
-    verificationNote: 'Datos bibliográficos y ecuación de cacao (d30) pendientes de comprobar en el PDF original.',
+    verificationNote: 'Original no disponible. La ecuación de cacao (d30) se comprobó en Andrade et al. (2013), Carvajal-Agudelo y Andrade (2020) y Gómez Cardozo et al. (2018); los datos bibliográficos se tomaron de esas tres fuentes, que coinciden.',
   },
   schroth2002: {
     key: 'schroth2002',
@@ -249,7 +253,26 @@ export const REFERENCES: Record<string, Reference> = {
     title: 'Conversion of secondary forest into agroforestry and monoculture plantations in Amazonia: consequences for biomass, litter and soil carbon stocks after 7 years',
     container: 'Forest Ecology and Management', volume: '163', issue: '1–3', pages: '131–150',
     doi: '10.1016/S0378-1127(01)00537-0', verification: 'crossref',
-    verificationNote: 'Solo metadatos. La ecuación de cítricos usada por la aplicación NO se ha comprobado en el original.',
+    verificationNote: 'Solo metadatos. La ecuación de cítricos se tomó de Gómez Cardozo et al. (2018, Cuadro 1); falta comprobarla en el original.',
+  },
+  gomezCardozo2018: {
+    key: 'gomezCardozo2018', authors: ['Gómez Cardozo, E.', 'Rousseau, G. X.', 'Celentano, D.', 'Fariñas Salazar, H.', 'Gehring, C.'], year: 2018,
+    title: 'Efecto de la riqueza de especies y estructura de la vegetación en el almacenamiento de carbono en sistemas agroforestales de la Amazonía, Bolivia',
+    container: 'Revista de Biología Tropical', volume: '66', issue: '4', pages: '1481–1495', doi: '10.15517/rbt.v66i4.32489',
+    verification: 'crossref',
+    verificationNote: 'Cuadro 1 (ecuaciones de cacao d30, café, Musa y cítricos) leído en el PDF. El DOI se infiere del identificador del artículo (32489) en la revista: lo confirma la comprobación Crossref en CI.',
+  },
+  andrade2013: {
+    key: 'andrade2013', authors: ['Andrade, H. J.', 'Figueroa, J. M.', 'Silva, D. P.'], year: 2013,
+    title: 'Almacenamiento de carbono en cacaotales (Theobroma cacao) en Armero-Guayabal (Tolima, Colombia)',
+    container: 'Scientia Agroalimentaria', volume: '1', pages: '6–10', verification: 'pdf',
+    verificationNote: 'Ec. 1 (cacao, d30, kg por árbol) leída en el PDF. Revista sin DOI.',
+  },
+  carvajal2020: {
+    key: 'carvajal2020', authors: ['Carvajal-Agudelo, B. N.', 'Andrade, H. J.'], year: 2020,
+    title: 'Captura de carbono en biomasa de sistemas de uso del suelo, municipio de Yopal, Casanare, Colombia',
+    container: 'Orinoquia', volume: '24', issue: '1', pages: '13–22', doi: '10.22579/20112629.587', verification: 'crossref',
+    verificationNote: 'Tabla 1 (cacao, d30) leída en el PDF.',
   },
 };
 
@@ -261,7 +284,7 @@ export const METHOD_REFERENCES = {
   rarefaction: ['hurlbert1971', 'chao2014', 'hsieh2016', 'chaoJost2012'],
   indval: ['dufrene1997', 'deCaceres2009', 'deCaceres2010', 'benjamini1995'],
   structure: ['curtis1951'],
-  biomass: ['chave2005', 'chave2014', 'segura2006', 'andrade2008', 'hairiah2011', 'ipcc2006', 'fischer2026', 'gwdd2025', 'rejouMechain2017', 'kruskal1952', 'dunn1964'],
+  biomass: ['chave2005', 'chave2014', 'segura2006', 'andrade2008', 'hairiah2011', 'ipcc2006', 'fischer2026', 'gwdd2026', 'rejouMechain2017', 'kruskal1952', 'dunn1964'],
 } as const;
 
 export type MethodId = keyof typeof METHOD_REFERENCES;

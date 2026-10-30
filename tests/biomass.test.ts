@@ -54,6 +54,20 @@ describe('allometric equation registry (coefficients as printed in the sources)'
     expect(EQUATIONS.cacao.diameter).toBe('d30');
   });
 
+  it('Segura et al. (2006) Table 3, Eq. 5 (height only, as used by Gómez Cardozo et al. 2018)', () => {
+    const t = tree('Coffea arabica', NaN, 2);
+    expect(missingInputs('cafe_solo_altura', t)).toBeNull();
+    expectClose(computeAGB('cafe_solo_altura', t)!, 10 ** (-0.779 + 2.338 * Math.log10(2)), 1e-12);
+  });
+
+  it('citrus (Schroth et al. 2002 as cited by Gómez Cardozo et al. 2018) uses basal area at 30 cm in cm²', () => {
+    const t = tree('Citrus sinensis', 15, undefined, undefined, 'D30 (cm)');
+    const AB = Math.PI * 7.5 ** 2;
+    expectClose(computeAGB('citrus', t)!, -6.64 + 0.279 * AB + 0.000514 * AB * AB, 1e-12);
+    expect(EQUATIONS.citrus.diameter).toBe('d30');
+    expect(isOutsideRange('citrus', tree('Citrus sinensis', 4, undefined, undefined, 'D30 (cm)'))).toBe(true);
+  });
+
   it('Hairiah et al. (2011) Table 3: cacao (DBH) and banana', () => {
     expectClose(computeAGB('cacao_dap', tree('Theobroma cacao', 10, undefined, undefined, 'DAP (cm)'))!, 0.1208 * 10 ** 1.98, 1e-12);
     expectClose(computeAGB('musa_sp', tree('Musa paradisiaca', 20))!, 0.03 * 20 ** 2.13, 1e-12);
@@ -79,6 +93,8 @@ describe('allometric equation registry (coefficients as printed in the sources)'
     expect(equationForRow(tree('Theobroma cacao', 10), {})).toBe('cacao');
     expect(equationForRow(tree('Coffea arabica', 3), {})).toBe('cafe');
     expect(equationForRow(tree('Coffea arabica', 3, 1.8), {})).toBe('cafe_altura');
+    expect(equationForRow(tree('Coffea arabica', NaN, 1.8), {})).toBe('cafe_solo_altura');
+    expect(equationForRow(tree('Citrus reticulata', 12, undefined, undefined, 'D30 (cm)'), {})).toBe('citrus');
     expect(equationForRow(tree('Ocotea sp.', 30), { SAF: 'chave2014' })).toBe('chave2014');
     expect(equationForRow(tree('Ocotea sp.', 30), {})).toBeNull();
   });
@@ -97,11 +113,11 @@ describe('allometric equation registry (coefficients as printed in the sources)'
   });
 
   it('reports equations used, unverified ones and trees without equation', () => {
-    const res = runBiomassAnalysis([tree('Coffea arabica', 9), tree('Citrus sinensis', 15), tree('Ocotea sp.', 30)],
+    const res = runBiomassAnalysis([tree('Coffea arabica', 9), tree('Citrus sinensis', 15, undefined, undefined, 'D30 (cm)'), tree('Ocotea sp.', 30)],
       {}, { SAF: { numPlots: '1', plotArea: '1000' } }, []);
     const byId = Object.fromEntries(res.equationsUsed.map(u => [u.equation, u]));
     expect(byId.cafe.outsideRange).toBe(1);
-    expect(byId.citrus_sinensis.verified).toBe(false);
+    expect(byId.citrus.verified).toBe(false);
     expect(res.withoutEquation).toBe(1);
   });
 });

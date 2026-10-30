@@ -17,10 +17,14 @@ export interface AllometricEquation {
   reference: string;
   /** Fuente primaria cuando la ecuación se tomó de una compilación (p. ej. Hairiah et al. 2011). */
   primarySource?: string;
+  /** Claves de las publicaciones donde se comprobaron los coeficientes cuando no se tuvo el original. */
+  checkedIn?: string[];
   formula: string;
   diameter: DiameterKind;
   needsHeight: boolean;
   needsDensity: boolean;
+  /** false si la ecuación no usa diámetro (p. ej. café solo con altura). */
+  needsDiameter?: boolean;
   /** Rango de calibración publicado (cm y m). */
   range?: { D?: [number, number]; H?: [number, number] };
   verified: boolean;
@@ -98,12 +102,21 @@ export const EQUATIONS: Record<string, AllometricEquation> = {
     rse: { value: 0.15, scale: 'log10', source: 'RMSE de la ecuación 4 (Tabla 3) en Segura et al. (2006)' },
     compute: ({ D, H }) => Math.pow(10, -1.113 + 1.578 * Math.log10(D) + 0.581 * Math.log10(H)),
   },
+  cafe_solo_altura: {
+    id: 'cafe_solo_altura', label: 'Café, solo altura (Segura et al., 2006, ec. 5)', reference: 'segura2006',
+    formula: 'log10(AGB) = −0.779 + 2.338 log10(h)', diameter: 'd15', needsDiameter: false, needsHeight: true,
+    needsDensity: false, range: { H: [0.3, 3.3] }, verified: true,
+    verificationNote: 'Comprobada en el PDF original (Tabla 3, ecuación 5; R² = 0.82). Es la que usan Gómez Cardozo et al. (2018). Menos precisa que las ecuaciones 3 y 4: se usa solo si falta el d15.',
+    rse: { value: 0.27, scale: 'log10', source: 'RMSE de la ecuación 5 (Tabla 3) en Segura et al. (2006)' },
+    compute: ({ H }) => Math.pow(10, -0.779 + 2.338 * Math.log10(H)),
+  },
   // Cacao medido a 30 cm del suelo (d30), como es habitual en Latinoamérica.
   cacao: {
     id: 'cacao', label: 'Cacao, d30 (Andrade et al., 2008)', reference: 'andrade2008',
+    checkedIn: ['andrade2013', 'gomezCardozo2018', 'carvajal2020'],
     formula: 'log10(AGB) = −1.625 + 2.63 log10(d30)', diameter: 'd30', needsHeight: false, needsDensity: false,
-    verified: false,
-    verificationNote: 'Pendiente del PDF original. Coincide con la forma en logaritmo natural que imprime Suárez et al. (2025, Tabla 1): ln(AGB) = −3.74 + 2.63 ln(d30), ya que −1.625 × ln 10 = −3.74.',
+    verified: true,
+    verificationNote: 'Original no disponible. Los coeficientes, la unidad (kg por árbol) y el d30 en cm coinciden en tres publicaciones independientes: Andrade et al. (2013, Ec. 1), Carvajal-Agudelo y Andrade (2020, Tabla 1), ambas con Andrade como autor, y Gómez Cardozo et al. (2018, Cuadro 1; R² = 0.98). También coincide con la forma en logaritmo natural de Suárez et al. (2025): −1.625 × ln 10 = −3.74.',
     compute: ({ D }) => Math.pow(10, -1.625 + 2.63 * Math.log10(D)),
   },
   cacao_dap: {
@@ -126,11 +139,14 @@ export const EQUATIONS: Record<string, AllometricEquation> = {
     verificationNote: 'Coeficientes heredados de la versión anterior; no se encontró ni comprobó la fuente original.',
     compute: ({ D }) => Math.exp(-1.613 + 1.83 * Math.log(D)),
   },
-  citrus_sinensis: {
-    id: 'citrus_sinensis', label: 'Citrus sinensis (atribuida a Schroth et al., 2002) — SIN VERIFICAR', reference: 'schroth2002',
-    formula: 'AGB = −6.64 + 0.279·AB + 0.000514·AB² (AB = área basal, cm²)', diameter: 'dbh', needsHeight: false,
-    needsDensity: false, verified: false,
-    verificationNote: 'Coeficientes heredados de la versión anterior; no se han comprobado en Schroth et al. (2002).',
+  citrus: {
+    id: 'citrus', label: 'Citrus spp., d30 (Schroth et al., 2002) — SIN VERIFICAR', reference: 'schroth2002',
+    checkedIn: ['gomezCardozo2018'],
+    formula: 'AGB = −6.64 + 0.279·AB + 0.000514·AB² (AB = área basal a 30 cm, cm²)', diameter: 'd30',
+    needsHeight: false, needsDensity: false, verified: false,
+    // Por debajo de AB ≈ 22.8 cm² (d30 ≈ 5.4 cm) la ecuación da biomasa negativa.
+    range: { D: [5.4, Infinity] },
+    verificationNote: 'Coeficientes tal como los citan Gómez Cardozo et al. (2018, Cuadro 1; R² = 0.94), que midieron los cítricos a 30 cm del suelo. Falta comprobarlos (y las unidades de AB) en el original de Schroth et al. (2002).',
     compute: ({ D }) => {
       const AB = Math.PI * (D / 2) ** 2;
       return Math.max(0, -6.64 + 0.279 * AB + 0.000514 * AB * AB);
@@ -190,10 +206,11 @@ export const equationForRow = (row: ForestDataRow, selections: Record<string, st
   const veg = row['Tipo de vegetación'];
   if (name.includes('theobroma cacao')) return 'cacao';
   if (name.includes('coffea') || name.includes('café') || name.includes('cafe')) {
-    const { H } = readTree(row, 'd15');
-    return H > 0 ? 'cafe_altura' : 'cafe';
+    const { D, H } = readTree(row, 'd15');
+    if (D > 0) return H > 0 ? 'cafe_altura' : 'cafe';
+    return H > 0 ? 'cafe_solo_altura' : 'cafe';
   }
-  if (name.includes('citrus sinensis')) return 'citrus_sinensis';
+  if (name.includes('citrus')) return 'citrus';
   if (name.includes('musa')) return 'musa_sp';
   if (typeof veg === 'string' && selections[veg]) return selections[veg];
   return null;
@@ -204,7 +221,7 @@ export const missingInputs = (equationId: string, row: ForestDataRow): string | 
   const eq = EQUATIONS[equationId];
   if (!eq) return 'ecuación';
   const v = readTree(row, eq.diameter);
-  if (!(v.D > 0)) return DIAMETER_COLUMN[eq.diameter];
+  if (eq.needsDiameter !== false && !(v.D > 0)) return DIAMETER_COLUMN[eq.diameter];
   if (eq.needsHeight && !(v.H > 0)) return 'Altura (m)';
   if (eq.needsDensity && !(v.rho > 0)) return 'Densidad (g/cm3)';
   return null;

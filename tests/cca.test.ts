@@ -39,6 +39,15 @@ describe.skipIf(!fx)('CCA vs vegan::cca', () => {
         expect(Math.abs(t.p - ref.p)).toBeLessThanOrEqual(4 * se + 0.01);
       });
 
+      it.skipIf(!ref?.ellipsesSE)('95% centroid ellipses equal vegan::ordiellipse(kind = "se")', () => {
+        const ell = groupEllipses(res!.sitesWA, ref.groups, 0.95, 'se');
+        for (const e of ref.ellipsesSE) {
+          const mine = ell.find(x => x.group === e.group)!;
+          expectClose(mine.rx, e.rx, 1e-6, `rx ${e.group}`);
+          expectClose(mine.ry, e.ry, 1e-6, `ry ${e.group}`);
+        }
+      });
+
       it.skipIf(!ref?.ellipses)('95% group ellipses equal vegan::ordiellipse', () => {
         const ell = groupEllipses(res!.sitesWA, ref.groups);
         // Align sign of axes with vegan before comparing centres.
@@ -54,4 +63,29 @@ describe.skipIf(!fx)('CCA vs vegan::cca', () => {
       });
     });
   }
+});
+
+describe('group ellipses: dispersion (sd) and centroid confidence (se)', () => {
+  const pts = [
+    { x: 0, y: 0, weight: 1 }, { x: 1, y: 0.5, weight: 2 }, { x: 2, y: 1.5, weight: 1 }, { x: 0.5, y: 2, weight: 3 },
+    { x: 5, y: 5, weight: 1 }, { x: 6, y: 4, weight: 1 }, { x: 5.5, y: 6, weight: 2 },
+  ];
+  const groups = ['101-150', '101-150', '101-150', '101-150', '51-100', '51-100', '51-100'];
+
+  it('the se ellipse is the sd ellipse shrunk by sqrt(Σw²) (normalised weights), as in vegan', () => {
+    const sd = groupEllipses(pts, groups, 0.95, 'sd');
+    const se = groupEllipses(pts, groups, 0.95, 'se');
+    sd.forEach((e, k) => {
+      const w = pts.filter((_, i) => groups[i] === e.group).map(p => p.weight);
+      const tot = w.reduce((a, b) => a + b, 0);
+      const f = Math.sqrt(w.reduce((a, b) => a + (b / tot) ** 2, 0));
+      expectClose(se[k].rx, e.rx * f, 1e-12);
+      expectClose(se[k].ry, e.ry * f, 1e-12);
+      expectClose(se[k].cx, e.cx, 1e-12);
+    });
+  });
+
+  it('groups are ordered naturally (51-100 before 101-150)', () => {
+    expect(groupEllipses(pts, groups).map(e => e.group)).toEqual(['51-100', '101-150']);
+  });
 });

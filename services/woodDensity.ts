@@ -1,6 +1,6 @@
 /**
  * Densidad básica de la madera a partir de la Global Wood Density Database v2.2
- * (Fischer et al. 2026; datos en https://doi.org/10.5281/zenodo.16919509).
+ * (Fischer et al. 2026; datos en https://doi.org/10.5281/zenodo.20815517).
  *
  * El archivo public/data/gwdd-v2.2-wood-density.json se genera con data-raw/gwdd_wood_density.R.
  * La búsqueda sigue la lógica de BIOMASS::getWoodDensity: especie, y si no hay datos, género y

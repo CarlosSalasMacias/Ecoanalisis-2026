@@ -4,6 +4,10 @@ import { SiteCCAPlotData, SingleCCAPlotData, CCACoordinates, CorrelationMatrix }
 import { ExportIcon, ScatterChartIcon } from './Icons';
 import { useTranslations } from '../translations';
 import { palettes, PaletteName } from './palettes';
+import { naturalCompare } from '../services/stats/cca';
+
+export type EllipseMode = 'none' | 'sd' | 'se';
+const LABEL_OPTIONS = [0, 5, 10, 15, 25, Infinity];
 
 const PADDING = 80; // Increased padding to prevent labels from overflowing
 const WIDTH = 600;
@@ -150,11 +154,19 @@ const SiteMarker: React.FC<{ shape: typeof SITE_SHAPES[number]; cx: number; cy: 
     }
 };
 
-const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabels: boolean, showConnectors: boolean, showEllipses: boolean, showSites: boolean, svgRef: React.RefObject<SVGSVGElement> }> = ({ data, palette, showLabels, showConnectors, showEllipses, showSites, svgRef }) => {
+const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabels: boolean, showConnectors: boolean, ellipseMode: EllipseMode, nSpeciesLabels: number, showSites: boolean, svgRef: React.RefObject<SVGSVGElement> }> = ({ data, palette, showLabels, showConnectors, ellipseMode, nSpeciesLabels, showSites, svgRef }) => {
     const t = useTranslations();
-    const { species } = data.biplot;
+    // Se etiquetan las N especies de mayor peso (abundancia total); el resto se dibuja como punto.
+    const species = useMemo(() => {
+        const all = data.biplot.species;
+        if (!all.some(s => typeof s.weight === 'number')) return all;
+        const keep = new Set(all.slice().sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0)).slice(0, nSpeciesLabels).map(s => s.name));
+        return all.map(s => ({ ...s, isBackground: !keep.has(s.name) }));
+    }, [data, nSpeciesLabels]);
+    const showEllipses = ellipseMode !== 'none';
+    const ellipseList = ellipseMode === 'se' ? (data.ellipsesSE ?? []) : ellipseMode === 'sd' ? (data.ellipses ?? []) : [];
     const sites = showSites ? (data.biplot.sites ?? []) : [];
-    const groups = useMemo(() => Array.from(new Set((data.biplot.sites ?? []).map(s => s.group || ''))).sort(), [data]);
+    const groups = useMemo(() => Array.from(new Set((data.biplot.sites ?? []).map(s => s.group || ''))).sort(naturalCompare), [data]);
     const PLOT_WIDTH = WIDTH - PADDING * 2;
     const PLOT_HEIGHT = HEIGHT - PADDING * 2;
 
@@ -172,8 +184,8 @@ const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabe
     const { scaleX, scaleY, originX, originY } = useMemo(() => {
         const xs = allPoints.map(p => p.x).filter(Number.isFinite);
         const ys = allPoints.map(p => p.y).filter(Number.isFinite);
-        if (showEllipses && data.ellipses) {
-            data.ellipses.forEach(e => {
+        if (showEllipses) {
+            ellipseList.forEach(e => {
                 const r = Math.max(e.rx, e.ry);
                 xs.push(e.cx - r, e.cx + r);
                 ys.push(e.cy - r, e.cy + r);
@@ -193,7 +205,7 @@ const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabe
         const sX = (x: number) => PADDING + PLOT_WIDTH / 2 + (x - midX) * scaleFactor;
         const sY = (y: number) => PADDING + PLOT_HEIGHT / 2 - (y - midY) * scaleFactor;
         return { scaleX: sX, scaleY: sY, originX: sX(0), originY: sY(0) };
-    }, [allPoints, data, showEllipses, PLOT_WIDTH, PLOT_HEIGHT]);
+    }, [allPoints, ellipseList, showEllipses, PLOT_WIDTH, PLOT_HEIGHT]);
 
     const colors = palettes[palette];
     const groupColor = (g?: string) => colors[Math.max(0, groups.indexOf(g || '')) % colors.length];
@@ -219,7 +231,7 @@ const Biplot: React.FC<{ data: SingleCCAPlotData, palette: PaletteName, showLabe
             <line x1={PADDING} y1={originY} x2={WIDTH - PADDING} y2={originY} stroke="#d1d5db" strokeDasharray="4 3" />
             <line x1={originX} y1={PADDING} x2={originX} y2={HEIGHT - PADDING} stroke="#d1d5db" strokeDasharray="4 3" />
 
-            {showEllipses && data.ellipses?.map(ellipse => {
+            {showEllipses && ellipseList.map(ellipse => {
                 const scaledCx = scaleX(ellipse.cx);
                 const scaledCy = scaleY(ellipse.cy);
                 const radiusX = Math.abs(ellipse.rx * (scaleX(1) - scaleX(0)));
@@ -385,18 +397,20 @@ const CorrelationHeatmap: React.FC<{ matrix: CorrelationMatrix, palette: Palette
 
 interface CCAPlotProps {
   data: SiteCCAPlotData | null;
+  ellipseMode: EllipseMode;
+  onEllipseModeChange: (mode: EllipseMode) => void;
   sites: string[];
   selectedSite: string;
   onSiteChange: (site: string) => void;
   isLoading: boolean;
 }
 
-export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onSiteChange, isLoading }) => {
+export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onSiteChange, isLoading, ellipseMode, onEllipseModeChange }) => {
     const t = useTranslations();
     const [biplotPalette, setBiplotPalette] = useState<PaletteName>('Viridis');
     const [heatmapPalette, setHeatmapPalette] = useState<PaletteName>('Viridis');
     const [showLabels, setShowLabels] = useState(true);
-    const [showEllipses, setShowEllipses] = useState(true);
+    const [nSpeciesLabels, setNSpeciesLabels] = useState(10);
     const [showConnectors, setShowConnectors] = useState(true);
     const [showSites, setShowSites] = useState(true);
 
@@ -462,14 +476,24 @@ export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onS
                                 <input type="checkbox" id="show-sites" checked={showSites} onChange={() => setShowSites(!showSites)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"/>
                                 <label htmlFor="show-sites" className="ml-2 text-sm text-gray-700 select-none cursor-pointer">{t.showSites}</label>
                             </div>
-                            <div className="flex items-center">
-                                <input type="checkbox" id="show-ellipses" checked={showEllipses} onChange={() => setShowEllipses(!showEllipses)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"/>
-                                <label htmlFor="show-ellipses" className="ml-2 text-sm text-gray-700 select-none cursor-pointer">{t.showEllipses}</label>
+                            <div className="flex items-center space-x-2">
+                                <label htmlFor="cca-label-count" className="text-sm font-medium text-gray-700">{t.ccaSpeciesLabels}</label>
+                                <select id="cca-label-count" value={String(nSpeciesLabels)} onChange={e => setNSpeciesLabels(Number(e.target.value))} disabled={!showLabels} className="p-1.5 border-gray-300 rounded-md shadow-sm disabled:bg-gray-100">
+                                    {LABEL_OPTIONS.map(n => <option key={n} value={String(n)}>{Number.isFinite(n) ? n : t.all}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <label htmlFor="cca-ellipse-mode" className="text-sm font-medium text-gray-700">{t.ccaEllipses}</label>
+                                <select id="cca-ellipse-mode" value={ellipseMode} onChange={e => onEllipseModeChange(e.target.value as EllipseMode)} className="p-1.5 border-gray-300 rounded-md shadow-sm">
+                                    <option value="se">{t.ccaEllipseSE}</option>
+                                    <option value="sd">{t.ccaEllipseSD}</option>
+                                    <option value="none">{t.ccaEllipseNone}</option>
+                                </select>
                             </div>
                             <button onClick={() => exportSVG(biplotRef.current, `cca-biplot-${selectedSite}.svg`)} className="flex items-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-3 rounded-lg text-sm"><ExportIcon className="h-4 w-4 mr-1"/> SVG</button>
                         </div>
                     </div>
-                     <Biplot data={currentData} palette={biplotPalette} showLabels={showLabels} showConnectors={showConnectors} showEllipses={showEllipses} showSites={showSites} svgRef={biplotRef} />
+                     <Biplot data={currentData} palette={biplotPalette} showLabels={showLabels} showConnectors={showConnectors} ellipseMode={ellipseMode} nSpeciesLabels={nSpeciesLabels} showSites={showSites} svgRef={biplotRef} />
                      {st && (
                         <div className="mt-3 text-sm text-gray-700 space-y-1 border-t pt-3">
                             <p>
@@ -480,9 +504,23 @@ export const CCAPlot: React.FC<CCAPlotProps> = ({ data, sites, selectedSite, onS
                                 <span className="font-semibold">{t.ccaEigenvalues}:</span> {st.eigenvalues.map((e, i) => `CCA${i + 1} = ${e.toFixed(4)} (${st.axisPercent[i].toFixed(1)} %)`).join('; ')}.
                             </p>
                             <p>
-                                <span className="font-semibold">VIF:</span> {Object.entries(st.vif).map(([k, v]) => `${k} = ${Number.isFinite(v) ? (v as number).toFixed(2) : '∞'}`).join('; ')}.{' '}
+                                <span className="font-semibold">VIF:</span>{' '}
+                                {Object.entries(st.vif).map(([k, v], i) => {
+                                    const high = !Number.isFinite(v) || (v as number) > 10;
+                                    return <span key={k} className={high ? 'text-red-700 font-semibold' : ''}>{i > 0 ? '; ' : ''}{k} = {Number.isFinite(v) ? (v as number).toFixed(2) : '∞'}</span>;
+                                })}.{' '}
                                 <span className="text-gray-500">{t.ccaVifNote}</span>
                             </p>
+                            {Object.values(st.vif).some(v => !Number.isFinite(v) || (v as number) > 10) && (
+                                <p className="p-2 bg-red-50 border border-red-200 rounded text-red-800">{t.ccaVifWarning}</p>
+                            )}
+                            <p className="text-gray-600">{t.ccaInertiaNote}</p>
+                            {ellipseMode !== 'none' && currentData.groupSizes && Object.entries(currentData.groupSizes as Record<string, number>).some(([, n]) => n < 3) && (
+                                <p className="text-xs text-amber-700">{t.ccaSmallGroups.replace('{groups}', Object.entries(currentData.groupSizes as Record<string, number>).filter(([, n]) => n < 3).map(([g]) => g).join(', '))}</p>
+                            )}
+                            {ellipseMode !== 'none' && (
+                                <p className="text-xs text-gray-500">{ellipseMode === 'se' ? t.ccaEllipseSENote : t.ccaEllipseSDNote}</p>
+                            )}
                             <p className="text-xs text-gray-500">{t.ccaMethodNote.replace('{n}', String(st.nSites)).replace('{s}', String(st.nSpecies)).replace('{seed}', String(st.seed))}</p>
                             {currentData.notes?.map((n, i) => <p key={i} className="text-xs text-amber-700">{n}</p>)}
                         </div>
