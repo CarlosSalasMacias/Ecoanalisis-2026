@@ -100,3 +100,13 @@ describe('rarefaction formulas vs Monte-Carlo subsampling', () => {
     });
   }
 });
+
+describe('q = 1 extrapolation: reference values printed by iNEXT 3.0.2 (spider data, Girdled)', () => {
+  const x = [46, 22, 17, 15, 15, 9, 8, 6, 6, 4, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  it('matches iNEXT:::TD.m.est and Diversity_profile', () => {
+    expectClose(Math.exp(shannonEstimate(x)), 13.826253448413869, 1e-10);
+    expectClose(hillAtSize(x, 1, 169), 12.067840473826427, 1e-10);
+    expectClose(hillAtSize(x, 1, 200), 12.303741676299305, 1e-10);
+    expectClose(hillAtSize(x, 1, 336), 13.016965787606843, 1e-10);
+  });
+});

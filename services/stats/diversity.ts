@@ -6,6 +6,7 @@
  * - Chao A., Jost L. (2012) Ecology 93:2533–2547 (sample coverage).
  * - Chao A., Wang Y.T., Jost L. (2013) Methods Ecol. Evol. 4:1091–1100 (Shannon entropy estimator).
  * - Chao A. et al. (2014) Ecol. Monogr. 84:45–67 (Hill-number rarefaction/extrapolation).
+ * - Extrapolation of q = 1 as implemented in iNEXT 3.0 (TD.m.est), which replaces the 2014 formula.
  *
  * Formulas follow the R package iNEXT (Hsieh, Ma & Chao 2016) so that results can be checked against it.
  */
@@ -184,10 +185,14 @@ export function hillAtSize(counts: readonly number[], q: 0 | 1 | 2, m: number): 
       }
       return Math.exp(H);
     }
-    const Hobs = shannonEntropy(x);
-    if (m === n) return Math.exp(Hobs);
-    const Hhat = shannonEstimate(x);
-    return Math.exp((n / m) * Hobs + (1 - n / m) * Hhat);
+    const obs = Math.exp(shannonEntropy(x));
+    if (m === n) return obs;
+    // Extrapolation as in iNEXT ≥ 3.0 (TD.m.est): D(n + m*) = obs + (asy − obs)·(1 − (1 − β)^m*),
+    // with β = (obs − D(n−1)) / (asy − D(n−1)) and asy = exp(Ĥ) (Chao, Wang & Jost 2013).
+    const asy = Math.exp(shannonEstimate(x));
+    const prev = hillAtSize(x, 1, n - 1);
+    const beta = asy !== prev ? (obs - prev) / (asy - prev) : 0;
+    return obs + (asy - obs) * (1 - (1 - beta) ** (m - n));
   }
 
   // q = 2
