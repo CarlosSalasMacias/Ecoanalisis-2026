@@ -540,7 +540,7 @@ const App: React.FC = () => {
                 {/* Gemini API Key Configuration Modal */}
                 {isApiKeyModalOpen && (
                     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 relative border border-gray-100">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 relative border border-gray-100">
                             <button 
                                 onClick={() => setIsApiKeyModalOpen(false)} 
                                 className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 focus:outline-hidden cursor-pointer"
@@ -604,17 +604,21 @@ const App: React.FC = () => {
                                 <p className="font-semibold mb-1 flex items-center">
                                     <span>💡 {t.apiKeyHowToGet}</span>
                                 </p>
-                                <p className="mb-2 text-blue-800 leading-relaxed">
+                                <p className="mb-1 text-blue-800 leading-relaxed">
                                     {t.apiKeyHowToGetDesc}
                                 </p>
+                                <ol className="list-decimal pl-5 mb-2 space-y-0.5 text-blue-800 leading-relaxed">
+                                    {[t.apiKeyStep1, t.apiKeyStep2, t.apiKeyStep3, t.apiKeyStep4, t.apiKeyStep5].map((step, i) => <li key={i}>{step}</li>)}
+                                </ol>
                                 <a
-                                    href="https://aistudio.google.com/"
+                                    href="https://aistudio.google.com/apikey"
                                     target="_blank"
                                     rel="noreferrer noopener"
                                     className="text-primary font-bold underline hover:text-opacity-80 flex items-center"
                                 >
                                     {t.apiKeyAIStudioLinkText} ↗
                                 </a>
+                                <p className="mt-2 text-[11px] text-blue-700 leading-snug">⚠ {t.apiKeyCautions}</p>
                             </div>
                         </div>
                     </div>
