@@ -181,7 +181,7 @@ export const REFERENCES: Record<string, Reference> = {
     title: 'Allometric models for estimating aboveground biomass of shade trees and coffee bushes grown together',
     container: 'Agroforestry Systems', volume: '68', issue: '2', pages: '143–150', doi: '10.1007/s10457-006-9005-x',
     verification: 'pdf',
-    verificationNote: 'Tabla 3, ecuaciones 3 y 4 (kg planta⁻¹; d15 en cm, h en m; d15 0.3–7.4 cm, h 0.3–3.3 m) comprobadas en el PDF. Volumen y páginas pendientes: el PDF no los imprime.',
+    verificationNote: 'Tabla 3, ecuaciones 3 y 4 (kg planta⁻¹; d15 en cm, h en m; d15 0.3–7.4 cm, h 0.3–3.3 m) comprobadas en el PDF. Volumen y páginas confirmados en Crossref.',
   },
   hairiah2011: {
     key: 'hairiah2011',
