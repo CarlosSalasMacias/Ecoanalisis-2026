@@ -537,6 +537,7 @@ const App: React.FC = () => {
                 
                 <footer className="text-center text-gray-500 text-sm mt-8">
                     <p>{t.footerText}</p>
+                    <p className="text-xs text-gray-400 mt-1">{t.versionLabel} {__BUILD_ID__}</p>
                 </footer>
 
                 {/* Gemini API Key Configuration Modal */}
