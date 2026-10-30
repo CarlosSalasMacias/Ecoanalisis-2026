@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     return {
-      base: mode === 'production' ? '/Ecoanalisis-2026/' : '/',
+      // Rutas relativas: funciona en GitHub Pages con cualquier nombre de repositorio.
+      base: mode === 'production' ? './' : '/',
       server: {
         port: 3000,
         host: '0.0.0.0',
