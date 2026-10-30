@@ -2,7 +2,7 @@
 #
 # Fuente: Fischer, F. J., Chave, J., Zanne, A., et al. (2026). Beyond species means – the
 # intraspecific contribution to global wood density variation. New Phytologist, 249, 2630–2651.
-# https://doi.org/10.1111/nph.70860. Datos: https://doi.org/10.5281/zenodo.16919509
+# https://doi.org/10.1111/nph.70860. Datos: https://doi.org/10.5281/zenodo.20815517
 #
 # Uso: Rscript data-raw/gwdd_wood_density.R ruta/a/gwdd_v2.2.RData
 # Salida: public/data/gwdd-v2.2-wood-density.json
@@ -62,7 +62,7 @@ out <- list(
   meta = list(
     database = "Global Wood Density Database v2.2",
     citation = "Fischer et al. (2026) New Phytologist 249: 2630-2651, doi:10.1111/nph.70860",
-    data_doi = "10.5281/zenodo.16919509",
+    data_doi = "10.5281/zenodo.20815517",
     records_total = n_total,
     records_used = nrow(d),
     species = length(unique(d$key)),

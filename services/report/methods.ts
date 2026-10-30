@@ -118,8 +118,9 @@ export function buildMethodology(ctx: MethodsContext): GeneratedText {
       const eq = EQUATIONS[u.equation];
       const ref = eq.reference ? ` ${c(eq.reference)}` : '';
       const primary = eq.primarySource ? (es ? `, ecuación original de ${eq.primarySource}` : `, original equation by ${eq.primarySource}`) : '';
+      const checked = eq.checkedIn?.length ? (es ? `; coeficientes según ${c(...eq.checkedIn)}` : `; coefficients as reported by ${c(...eq.checkedIn)}`) : '';
       const warn = eq.verified ? '' : (es ? ' **[coeficientes sin verificar en la fuente original]**' : ' **[coefficients not verified against the original source]**');
-      return `- ${eq.label.replace(/ — SIN VERIFICAR$/, '')}: ${eq.formula}${primary}${ref}; ${u.trees} ${es ? 'individuos' : 'individuals'}.${warn}`;
+      return `- ${eq.label.replace(/ — SIN VERIFICAR$/, '')}: ${eq.formula}${primary}${ref}${checked}; ${u.trees} ${es ? 'individuos' : 'individuals'}.${warn}`;
     });
     out.push(es
       ? 'La biomasa aérea (AGB, kg por individuo) se estimó con las siguientes ecuaciones alométricas (D, diámetro en cm; H, altura total en m; ρ, densidad básica de la madera en g cm⁻³):'
@@ -147,8 +148,8 @@ export function buildMethodology(ctx: MethodsContext): GeneratedText {
         : '';
       out.push(bio.woodDensityRegion
         ? (es
-          ? `La densidad básica de la madera se tomó de los datos de campo cuando existían; en los demás casos, de la Global Wood Density Database v.2.2 ${c('fischer2026', 'gwdd2025')} (${region}), usando la media de la especie y, si no había datos, la del género o la familia (medias de las medias de sus especies), como en BIOMASS ${c('rejouMechain2017')}. Siguiendo a ${n('fischer2026')}, se excluyeron los registros identificados solo a género, las muestras con corteza o de raíz y los registros de experimentos o plantaciones. Origen de la densidad (individuos): ${parts}.`
-          : `Basic wood density was taken from field data when available; otherwise from the Global Wood Density Database v.2.2 ${c('fischer2026', 'gwdd2025')} (${region}), using the species mean and, failing that, the genus or family mean (mean of species means), as in BIOMASS ${c('rejouMechain2017')}. Following ${n('fischer2026')}, genus-level records, bark or root samples and records from experiments or plantations were excluded. Source of density (individuals): ${parts}.`)
+          ? `La densidad básica de la madera se tomó de los datos de campo cuando existían; en los demás casos, de la Global Wood Density Database v.2.2 ${c('fischer2026', 'gwdd2026')} (${region}), usando la media de la especie y, si no había datos, la del género o la familia (medias de las medias de sus especies), como en BIOMASS ${c('rejouMechain2017')}. Siguiendo a ${n('fischer2026')}, se excluyeron los registros identificados solo a género, las muestras con corteza o de raíz y los registros de experimentos o plantaciones. Origen de la densidad (individuos): ${parts}.`
+          : `Basic wood density was taken from field data when available; otherwise from the Global Wood Density Database v.2.2 ${c('fischer2026', 'gwdd2026')} (${region}), using the species mean and, failing that, the genus or family mean (mean of species means), as in BIOMASS ${c('rejouMechain2017')}. Following ${n('fischer2026')}, genus-level records, bark or root samples and records from experiments or plantations were excluded. Source of density (individuals): ${parts}.`)
         : (es ? `Origen de la densidad de la madera (individuos): ${parts}.` : `Source of wood density (individuals): ${parts}.`));
     }
 

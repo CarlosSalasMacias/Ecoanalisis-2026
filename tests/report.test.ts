@@ -132,7 +132,7 @@ describe('methodology: crops, wood density, uncertainty and comparisons', () => 
     expect(m.markdown).toContain('Cacao, d30 (Andrade et al., 2008)');
     expect(m.markdown).toContain('Kruskal y Wallis (1952)');
     expect(m.markdown).toContain('prueba de permutación bilateral');
-    ['fischer2026', 'gwdd2025', 'rejouMechain2017', 'kruskal1952', 'dunn1964', 'magurran2004', 'legendre2012']
+    ['fischer2026', 'gwdd2026', 'rejouMechain2017', 'kruskal1952', 'dunn1964', 'magurran2004', 'legendre2012']
       .forEach(k => expect(m.citedKeys).toContain(k));
   });
 });

@@ -51,7 +51,8 @@ El área basal del IVI usa el DAP; en los individuos sin DAP usa D30 o D15, y la
 
 `public/data/gwdd-v2.2-wood-density.json` contiene medias por especie, género y familia (mundiales y por
 región) calculadas con `data-raw/gwdd_wood_density.R` a partir de la Global Wood Density Database v2.2
-(Fischer et al. 2026, *New Phytologist* 249: 2630–2651; datos en Zenodo, doi:10.5281/zenodo.16919509),
+(Fischer et al. 2026, *New Phytologist* 249: 2630–2651; datos en Zenodo, versión v2.2, doi:10.5281/zenodo.20815517,
+licencia CC BY 4.0),
 aplicando los filtros de Fischer et al. (sin registros a nivel de género, corteza, raíz, experimentos ni
 plantaciones). Para regenerarlo:
 
@@ -65,12 +66,12 @@ Rscript data-raw/gwdd_wood_density.R ruta/a/gwdd_v2.2.RData
 |---|---|---|---|
 | Pantropical con altura | Chave et al. 2014, ec. 4 | DAP | Comprobada en el PDF original |
 | Bosque seco, húmedo, muy húmedo (con y sin altura) | Chave et al. 2005 | DAP | Comprobadas en Hairiah et al. 2011, Tabla 2 |
-| Café (d15; d15 + altura) | Segura et al. 2006, Tabla 3, ec. 3 y 4 | d15 | Comprobadas en el PDF original |
-| Cacao (por defecto) | Andrade et al. 2008 | d30 | Coincide con Suárez et al. 2025, Tabla 1; **pendiente del PDF original** |
+| Café (d15; d15 + altura; solo altura) | Segura et al. 2006, Tabla 3, ec. 3, 4 y 5 | d15 | Comprobadas en el PDF original. La ec. 5 se usa solo si falta el d15 |
+| Cacao (por defecto) | Andrade et al. 2008 | d30 | Original no disponible; comprobada en Andrade et al. 2013, Carvajal-Agudelo y Andrade 2020, Gómez Cardozo et al. 2018 y Suárez et al. 2025 |
 | Cacao (alternativa) | Yuliasmara 2008, en Hairiah et al. 2011, Tabla 3 | DAP | Comprobada en la compilación (fuente secundaria) |
 | Banano (*Musa* sp.) | Arifin 2001, en Hairiah et al. 2011, Tabla 3 | DAP | Comprobada en la compilación (fuente secundaria) |
 | Cacao d30 (atribuida a Fomekong et al. 2024) | — | d30 | **Sin verificar** |
-| *Citrus sinensis* (atribuida a Schroth et al. 2002) | — | DAP | **Sin verificar** |
+| *Citrus* spp. (Schroth et al. 2002, citada por Gómez Cardozo et al. 2018) | — | d30 (área basal en cm²) | **Sin verificar en el original**; da biomasa negativa con d30 < 5,4 cm (se marca fuera de rango) |
 
 La aplicación avisa cuando se usa una ecuación sin verificar, cuando la ecuación exige un diámetro distinto
 del DAP y cuando un individuo queda fuera del rango de calibración publicado.
@@ -78,8 +79,9 @@ del DAP y cuando un individuo queda fuera del rango de calibración publicado.
 ## Pendientes
 
 - Módulo de carbono en el suelo (los componentes existen pero no están conectados).
-- PDF originales para verificar: Andrade et al. 2008 (cacao d30), Schroth et al. 2002 (cítricos) y la
-  fuente de la ecuación de cacao atribuida a Fomekong et al. 2024.
+- PDF originales para verificar: Schroth et al. 2002 (cítricos: coeficientes y unidades del área basal) y la
+  fuente de la ecuación de cacao atribuida a Fomekong et al. 2024. Andrade et al. 2008 sigue sin el
+  original, pero sus coeficientes coinciden en cuatro publicaciones.
 - Error residual publicado de las ecuaciones de Chave et al. 2005, cacao y banano (sin él, el IC total
   del carbono no incluye el error de esas ecuaciones).
 - Fase 3: Tailwind compilado (sin CDN), reemplazo de `xlsx`, validación de datos de entrada, dividir `App.tsx`.
