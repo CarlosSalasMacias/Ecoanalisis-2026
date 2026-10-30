@@ -167,8 +167,10 @@ interface StructuralAnalysisTableProps {
 const StructuralAnalysisTable: React.FC<StructuralAnalysisTableProps> = ({ analysisData }) => {
     const t = useTranslations();
     const [selectedSite, setSelectedSite] = useState('General');
+    const [excludeCrops, setExcludeCrops] = useState(false);
 
-    const { ivi, stand } = analysisData;
+    const { stand, cropSpecies = [], basalAreaSources = {} } = analysisData;
+    const ivi = excludeCrops ? analysisData.iviWithoutCrops : analysisData.ivi;
 
     const siteOptions = Object.keys(ivi).sort((a, b) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b));
     const currentData = ivi[selectedSite] || {};
@@ -193,7 +195,7 @@ const StructuralAnalysisTable: React.FC<StructuralAnalysisTableProps> = ({ analy
             ];
         });
         const dataForCSV = [headers, ...rows];
-        exportDataToCSV(dataForCSV, `forest-structural-analysis-${selectedSite}.csv`);
+        exportDataToCSV(dataForCSV, `forest-structural-analysis-${selectedSite}${excludeCrops ? '-sin-cultivo' : ''}`);
     };
 
     return (
@@ -216,6 +218,26 @@ const StructuralAnalysisTable: React.FC<StructuralAnalysisTableProps> = ({ analy
                     </div>
                 </div>
                 <p className="mb-4 text-gray-600">{t.structuralAnalysisDescription}</p>
+                <div className="p-3 bg-gray-50 border rounded-md text-sm space-y-2">
+                    <label className="flex items-center gap-2 font-medium text-gray-800">
+                        <input type="checkbox" checked={excludeCrops} onChange={e => setExcludeCrops(e.target.checked)} disabled={cropSpecies.length === 0} />
+                        {t.excludeCropsFromIVI}
+                    </label>
+                    <p className="text-gray-600">
+                        {cropSpecies.length > 0
+                            ? <>{t.cropSpeciesDetected} <span className="italic">{cropSpecies.join(', ')}</span>.</>
+                            : t.noCropSpeciesDetected}{' '}{t.cropColumnHelp}
+                    </p>
+                    {((basalAreaSources['D30'] ?? 0) > 0 || (basalAreaSources['D15'] ?? 0) > 0 || (basalAreaSources['ninguno'] ?? 0) > 0) && (
+                        <p className="text-amber-800">
+                            {t.basalAreaSourcesNote
+                                .replace('{dap}', String(basalAreaSources['DAP'] ?? 0))
+                                .replace('{d30}', String(basalAreaSources['D30'] ?? 0))
+                                .replace('{d15}', String(basalAreaSources['D15'] ?? 0))
+                                .replace('{none}', String(basalAreaSources['ninguno'] ?? 0))}
+                        </p>
+                    )}
+                </div>
             </div>
 
             <StandCharacteristicsTable data={stand} />
@@ -223,7 +245,7 @@ const StructuralAnalysisTable: React.FC<StructuralAnalysisTableProps> = ({ analy
             {species.length > 0 ? (
                 <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                        <h4 className="text-lg font-semibold text-secondary">Índice de Valor de Importancia (IVI)</h4>
+                        <h4 className="text-lg font-semibold text-secondary">{excludeCrops ? t.iviTitleWithoutCrops : t.iviTitleAll}</h4>
                          <button
                             onClick={handleExport}
                             className="flex items-center bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1.5 px-3 rounded-lg shadow-sm transition-colors duration-200 text-sm"

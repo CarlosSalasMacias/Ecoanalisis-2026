@@ -30,12 +30,15 @@ describe('biomass and carbon', () => {
   });
 });
 
-import { EQUATIONS, computeAGB, equationForRow, isOutsideRange } from '../services/biomassEquations';
+import { EQUATIONS, computeAGB, equationForRow, isCrop, isOutsideRange, missingInputs } from '../services/biomassEquations';
+import { parseData, runStructuralAnalysis } from '../services/analysisService';
 import { REFERENCES } from '../services/references';
 
-const tree = (name: string, D: number, H?: number, rho?: number) => ({
+// El diámetro va a la columna que corresponde a la especie: D15 para café, D30 para cacao, DAP para el resto.
+const columnFor = (name: string) => /coffea/i.test(name) ? 'D15 (cm)' : /theobroma/i.test(name) ? 'D30 (cm)' : 'DAP (cm)';
+const tree = (name: string, D: number, H?: number, rho?: number, column = columnFor(name)) => ({
   'Tipo de vegetación': 'SAF', Parcela: 'P1', 'Nombre científico (Completo)': name,
-  'DAP (cm)': D, 'Altura (m)': H ?? '', 'Densidad (g/cm3)': rho ?? '',
+  [column]: D, 'Altura (m)': H ?? '', 'Densidad (g/cm3)': rho ?? '',
 }) as any;
 
 describe('allometric equation registry (coefficients as printed in the sources)', () => {
@@ -52,7 +55,7 @@ describe('allometric equation registry (coefficients as printed in the sources)'
   });
 
   it('Hairiah et al. (2011) Table 3: cacao (DBH) and banana', () => {
-    expectClose(computeAGB('cacao_dap', tree('Theobroma cacao', 10))!, 0.1208 * 10 ** 1.98, 1e-12);
+    expectClose(computeAGB('cacao_dap', tree('Theobroma cacao', 10, undefined, undefined, 'DAP (cm)'))!, 0.1208 * 10 ** 1.98, 1e-12);
     expectClose(computeAGB('musa_sp', tree('Musa paradisiaca', 20))!, 0.03 * 20 ** 2.13, 1e-12);
   });
 
@@ -100,5 +103,43 @@ describe('allometric equation registry (coefficients as printed in the sources)'
     expect(byId.cafe.outsideRange).toBe(1);
     expect(byId.citrus_sinensis.verified).toBe(false);
     expect(res.withoutEquation).toBe(1);
+  });
+});
+
+describe('diameter columns and crops', () => {
+  it('each equation reads its own diameter column and reports what is missing', () => {
+    const cacaoOnlyDbh = tree('Theobroma cacao', 12, undefined, undefined, 'DAP (cm)');
+    expect(computeAGB('cacao', cacaoOnlyDbh)).toBeNull();
+    expect(missingInputs('cacao', cacaoOnlyDbh)).toBe('D30 (cm)');
+    expect(computeAGB('cacao', tree('Theobroma cacao', 12))).toBeGreaterThan(0);
+    const res = runBiomassAnalysis([cacaoOnlyDbh, tree('Theobroma cacao', 12)], {}, { SAF: { numPlots: '1', plotArea: '1000' } }, []);
+    expect(res.equationsUsed[0].missing).toEqual({ 'D30 (cm)': 1 });
+  });
+
+  it('crops are recognised by name or by the «Cultivo» column', () => {
+    expect(isCrop(tree('Theobroma cacao', 10))).toBe(true);
+    expect(isCrop(tree('Inga edulis', 10))).toBe(false);
+    expect(isCrop({ ...tree('Inga edulis', 10), Cultivo: 'sí' })).toBe(true);
+    expect(isCrop({ ...tree('Coffea arabica', 3), Cultivo: 'no' })).toBe(false);
+  });
+
+  it('IVI is reported with and without crops; basal area falls back to D30/D15', () => {
+    const grid = [
+      ['Tipo de vegetación', 'Parcela', 'Nombre científico (Completo)', 'N_Científico (Abreviado)', 'DAP (cm)', 'D30 (cm)', 'D15 (cm)'],
+      ['SAF', 'P1', 'Theobroma cacao', 'The cac', '', '12', ''],
+      ['SAF', 'P1', 'Theobroma cacao', 'The cac', '', '10', ''],
+      ['SAF', 'P1', 'Inga edulis', 'Ing edu', '25', '', ''],
+      ['SAF', 'P2', 'Cordia alliodora', 'Cor all', '30', '', ''],
+    ];
+    const data = parseData(grid, true) as any[];
+    expect(data[0]['Diámetro del área basal']).toBe('D30');
+    expectClose(data[0]['Área basal (cm²)'], Math.PI * 36, 1e-12);
+    const st = runStructuralAnalysis(data, null);
+    expect(st.cropSpecies).toEqual(['The cac']);
+    expect(Object.keys(st.ivi.General).sort()).toEqual(['Cor all', 'Ing edu', 'The cac']);
+    expect(Object.keys(st.iviWithoutCrops.General).sort()).toEqual(['Cor all', 'Ing edu']);
+    const total = Object.values(st.iviWithoutCrops.General).reduce((a: number, m: any) => a + m.ivi300, 0);
+    expectClose(total, 300, 0.05);
+    expect(st.basalAreaSources).toEqual({ D30: 2, DAP: 2 });
   });
 });

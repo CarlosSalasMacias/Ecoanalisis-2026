@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { BiomassConfig, EquationSelection, PlotInfo } from '../types';
 import { DEFAULT_CARBON_FRACTION, EQUATION_OPTIONS } from '../services/analysisService';
 import { useTranslations } from '../translations';
+import { GWDD_REGIONS } from '../services/woodDensity';
 
 interface BiomassConfigPanelProps {
   vegetationTypes: string[];
@@ -19,6 +20,8 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
   const [carbonFractionText, setCarbonFractionText] = useState<string>(String(DEFAULT_CARBON_FRACTION));
   const carbonFraction = parseFloat(carbonFractionText.replace(',', '.'));
   const carbonFractionValid = carbonFraction > 0 && carbonFraction < 1;
+  const [useGWDD, setUseGWDD] = useState(true);
+  const [gwddRegion, setGwddRegion] = useState('');
 
   // Reset state when vegetation types change (e.g., new file loaded)
   useEffect(() => {
@@ -62,9 +65,9 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
   useEffect(() => {
     onValidityChange(isConfigValid);
     if (isConfigValid) {
-        onConfigChange({ selections: equationSelections, plotInfo, descriptions, carbonFraction });
+        onConfigChange({ selections: equationSelections, plotInfo, descriptions, carbonFraction, useGWDD, gwddRegion });
     }
-  }, [isConfigValid, equationSelections, plotInfo, descriptions, carbonFraction, onValidityChange, onConfigChange]);
+  }, [isConfigValid, equationSelections, plotInfo, descriptions, carbonFraction, useGWDD, gwddRegion, onValidityChange, onConfigChange]);
 
   return (
     <div className="mt-8 pt-6 border-t border-gray-200">
@@ -78,6 +81,20 @@ const BiomassConfigPanel: React.FC<BiomassConfigPanelProps> = ({ vegetationTypes
                     <input id="carbon-fraction" type="number" step="0.001" min="0.3" max="0.6" value={carbonFractionText} onChange={e => setCarbonFractionText(e.target.value)} className={`w-28 mt-1 p-2 border rounded-md shadow-sm text-sm ${carbonFractionValid ? 'border-gray-300' : 'border-red-500'}`} />
                 </div>
                 <p className="text-xs text-gray-500 flex-1 min-w-[200px]">{t.carbonFractionHelp}</p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3 p-3 bg-white border rounded-md">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input type="checkbox" checked={useGWDD} onChange={e => setUseGWDD(e.target.checked)} />
+                    {t.useGWDD}
+                </label>
+                <div>
+                    <label htmlFor="gwdd-region" className="text-sm font-medium text-gray-700 mr-2">{t.gwddRegion}</label>
+                    <select id="gwdd-region" value={gwddRegion} disabled={!useGWDD} onChange={e => setGwddRegion(e.target.value)} className="p-2 border border-gray-300 rounded-md text-sm">
+                        <option value="">{t.gwddWorld}</option>
+                        {GWDD_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                </div>
+                <p className="text-xs text-gray-500 flex-1 min-w-[200px]">{t.useGWDDHelp}</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {vegetationTypes.map(vt => (

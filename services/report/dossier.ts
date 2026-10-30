@@ -51,13 +51,14 @@ export const formatEnvironmentalAnalysisForPrompt = (allAnalyses: AllEnvironment
     if (!allAnalyses || Object.keys(allAnalyses).length === 0) {
         return "No environmental data was provided or it was not applicable for the significant pairs.";
     }
-    let analysesString = 'Comparative Environmental Analysis Results for Significant Pairs:\n\n';
+    let analysesString = 'Environmental conditions of significant pairs (two-sided permutation test of the difference in means; BH correction over all pair × variable tests):\n\n';
     const sortedPairKeys = Object.keys(allAnalyses).sort();
     for (const pairKey of sortedPairKeys) {
         const { pair, analysis } = allAnalyses[pairKey];
         analysesString += `**Pair: *${pair.speciesA}* & *${pair.speciesB}* (${pair.effect.toUpperCase()} Association)**\n`;
         analysis.forEach(res => {
-            analysesString += `- *${res.factor}*: Co-occurrence Mean: ${res.cooccurrenceMean}, Control Mean: ${res.controlMean}\n`;
+            const test = res.pValue === null ? 'not tested (fewer than 2 plots in a group)' : `permutation p = ${res.pValue.toPrecision(2)}, BH-adjusted p = ${res.pAdj?.toPrecision(2)}`;
+            analysesString += `- *${res.factor}*: mean where both occur = ${res.cooccurrenceMean} (n = ${res.nCooccurrence}); mean where only one occurs = ${res.controlMean} (n = ${res.nControl}); ${test}\n`;
         });
         analysesString += '\n';
     }
@@ -196,6 +197,22 @@ export const formatBiomassForPrompt = (biomassResults: BiomassAnalysisResults | 
         summary += `| ${row['Tipo de vegetación']} | ${row.Carbono_Mg_Total.toFixed(2)} | ${carbonPerHa} |\n`;
     });
     summary += '\n';
+    const u = biomassResults.uncertainty;
+    if (u?.byType.length) {
+        const ci = (c: [number, number] | null) => (c ? `${c[0].toFixed(2)}–${c[1].toFixed(2)}` : 'n/a');
+        summary += `**Aboveground carbon per plot (Mg C/ha): mean ± SE across plots; 95% CI from sampling (t) and total 95% CI from ${u.nSimulations} Monte Carlo simulations (allometric error, wood density, plot resampling):**\n`;
+        u.byType.forEach(b => {
+            summary += `- ${b.type}: ${b.mean.toFixed(2)} ± ${b.se.toFixed(2)} (n = ${b.nPlots} plots); sampling CI ${ci(b.ciSampling)}; total CI ${ci(b.ciTotal)}\n`;
+        });
+        summary += `- Whole study (area-weighted): ${u.overall.carbonPerHa.toFixed(2)}; total CI ${ci(u.overall.ciTotal)}\n`;
+        if (u.comparison) {
+            const k = u.comparison.kruskal;
+            summary += `- Kruskal–Wallis among vegetation types: H = ${k.H.toFixed(2)}, df = ${k.df}, p = ${k.p.toPrecision(2)}\n`;
+            u.comparison.dunn.forEach(d => { summary += `  - Dunn ${d.a} vs ${d.b}: z = ${d.z.toFixed(2)}, BH-adjusted p = ${d.pAdj.toPrecision(2)}\n`; });
+        }
+        if (u.equationsWithoutModelError.length) summary += `- Equations without published residual error (total CI underestimates uncertainty): ${u.equationsWithoutModelError.join(', ')}\n`;
+        summary += '\n';
+    }
     if (biomassResults.equationsUsed?.length) {
         summary += '**Allometric equations applied (individuals; outside calibration range; coefficients verified):**\n';
         biomassResults.equationsUsed.forEach(u => {

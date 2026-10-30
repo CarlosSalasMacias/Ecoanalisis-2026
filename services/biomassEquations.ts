@@ -25,6 +25,8 @@ export interface AllometricEquation {
   range?: { D?: [number, number]; H?: [number, number] };
   verified: boolean;
   verificationNote: string;
+  /** Error residual del modelo publicado, para propagar la incertidumbre de la ecuación. */
+  rse?: { value: number; scale: 'ln' | 'log10'; source: string };
   compute: (v: { D: number; H: number; rho: number }) => number | null;
 }
 
@@ -41,6 +43,7 @@ export const EQUATIONS: Record<string, AllometricEquation> = {
     id: 'chave2014', label: 'Pantropical con altura (Chave et al., 2014, ec. 4)', reference: 'chave2014',
     formula: 'AGB = 0.0673 × (ρ·D²·H)^0.976', diameter: 'dbh', needsHeight: true, needsDensity: true,
     verified: true, verificationNote: 'Comprobada en el PDF original (ecuación 4).',
+    rse: { value: 0.357, scale: 'ln', source: 'RSE (σ) de la ecuación 4 en Chave et al. (2014)' },
     compute: ({ D, H, rho }) => 0.0673 * Math.pow(rho * D * D * H, 0.976),
   },
   dry: {
@@ -84,6 +87,7 @@ export const EQUATIONS: Record<string, AllometricEquation> = {
     id: 'cafe', label: 'Café, d15 (Segura et al., 2006, ec. 3)', reference: 'segura2006',
     formula: 'log10(AGB) = −1.181 + 1.991 log10(d15)', diameter: 'd15', needsHeight: false, needsDensity: false,
     range: { D: [0.3, 7.4] }, verified: true, verificationNote: 'Comprobada en el PDF original (Tabla 3, ecuación 3).',
+    rse: { value: 0.16, scale: 'log10', source: 'RMSE de la ecuación 3 (Tabla 3) en Segura et al. (2006)' },
     compute: ({ D }) => Math.pow(10, -1.181 + 1.991 * Math.log10(D)),
   },
   cafe_altura: {
@@ -91,6 +95,7 @@ export const EQUATIONS: Record<string, AllometricEquation> = {
     formula: 'log10(AGB) = −1.113 + 1.578 log10(d15) + 0.581 log10(h)', diameter: 'd15', needsHeight: true,
     needsDensity: false, range: { D: [0.3, 7.4], H: [0.3, 3.3] }, verified: true,
     verificationNote: 'Comprobada en el PDF original (Tabla 3, ecuación 4).',
+    rse: { value: 0.15, scale: 'log10', source: 'RMSE de la ecuación 4 (Tabla 3) en Segura et al. (2006)' },
     compute: ({ D, H }) => Math.pow(10, -1.113 + 1.578 * Math.log10(D) + 0.581 * Math.log10(H)),
   },
   // Cacao medido a 30 cm del suelo (d30), como es habitual en Latinoamérica.
@@ -144,11 +149,40 @@ const parseNumber = (value: unknown): number => {
   return s === '' ? NaN : parseFloat(s);
 };
 
-export const readTree = (row: ForestDataRow) => ({
-  D: parseNumber(row['DAP (cm)']),
-  H: parseNumber(row['Altura (m)']),
-  rho: parseNumber(row['Densidad (g/cm3)']),
-});
+/** Columna de la tabla de especies que contiene cada tipo de diámetro. */
+export const DIAMETER_COLUMN: Record<DiameterKind, string> = {
+  dbh: 'DAP (cm)',
+  d30: 'D30 (cm)',
+  d15: 'D15 (cm)',
+};
+
+/** Columna con la densidad de madera finalmente usada (la del usuario o la de la GWDD). */
+export const DENSITY_USED_COLUMN = 'Densidad usada (g/cm3)';
+
+/** Lee las variables del individuo; el diámetro se toma de la columna que exige la ecuación. */
+export const readTree = (row: ForestDataRow, diameter: DiameterKind = 'dbh') => {
+  const used = parseNumber(row[DENSITY_USED_COLUMN]);
+  return {
+    D: parseNumber(row[DIAMETER_COLUMN[diameter]]),
+    H: parseNumber(row['Altura (m)']),
+    rho: Number.isFinite(used) ? used : parseNumber(row['Densidad (g/cm3)']),
+  };
+};
+
+/** Especies de cultivo reconocidas automáticamente (se puede forzar con la columna «Cultivo»). */
+const CROP_NAMES = ['theobroma cacao', 'coffea', 'citrus', 'musa', 'persea americana', 'mangifera indica'];
+
+/**
+ * ¿Es el individuo una planta de cultivo? Si la tabla tiene la columna «Cultivo» (sí/no), manda
+ * esa columna; si no, se reconocen por nombre cacao, café, cítricos, banano/plátano, aguacate y mango.
+ */
+export const isCrop = (row: ForestDataRow): boolean => {
+  const flag = String(row['Cultivo'] ?? '').trim().toLowerCase();
+  if (['sí', 'si', 's', 'yes', 'y', 'x', '1', 'true', 'verdadero'].includes(flag)) return true;
+  if (['no', 'n', '0', 'false', 'falso'].includes(flag)) return false;
+  const name = String(row['Nombre científico (Completo)'] || '').toLowerCase();
+  return CROP_NAMES.some(c => name.includes(c));
+};
 
 /** Ecuación que corresponde a un individuo: primero por especie (cultivos), luego la del tipo de vegetación. */
 export const equationForRow = (row: ForestDataRow, selections: Record<string, string>): string | null => {
@@ -156,7 +190,7 @@ export const equationForRow = (row: ForestDataRow, selections: Record<string, st
   const veg = row['Tipo de vegetación'];
   if (name.includes('theobroma cacao')) return 'cacao';
   if (name.includes('coffea') || name.includes('café') || name.includes('cafe')) {
-    const { H } = readTree(row);
+    const { H } = readTree(row, 'd15');
     return H > 0 ? 'cafe_altura' : 'cafe';
   }
   if (name.includes('citrus sinensis')) return 'citrus_sinensis';
@@ -165,13 +199,23 @@ export const equationForRow = (row: ForestDataRow, selections: Record<string, st
   return null;
 };
 
-export const computeAGB = (equationId: string, row: ForestDataRow): number | null => {
+/** Por qué no se pudo calcular la biomasa de un individuo (null si se pudo). */
+export const missingInputs = (equationId: string, row: ForestDataRow): string | null => {
   const eq = EQUATIONS[equationId];
-  if (!eq) return null;
-  const v = readTree(row);
-  if (!(v.D > 0)) return null;
-  if (eq.needsHeight && !(v.H > 0)) return null;
-  if (eq.needsDensity && !(v.rho > 0)) return null;
+  if (!eq) return 'ecuación';
+  const v = readTree(row, eq.diameter);
+  if (!(v.D > 0)) return DIAMETER_COLUMN[eq.diameter];
+  if (eq.needsHeight && !(v.H > 0)) return 'Altura (m)';
+  if (eq.needsDensity && !(v.rho > 0)) return 'Densidad (g/cm3)';
+  return null;
+};
+
+/** Biomasa aérea (kg). `override` permite variar densidad o diámetro (simulación de Monte Carlo). */
+export const computeAGB = (equationId: string, row: ForestDataRow, override?: { rho?: number }): number | null => {
+  const eq = EQUATIONS[equationId];
+  if (!eq || missingInputs(equationId, row)) return null;
+  const v = readTree(row, eq.diameter);
+  if (override?.rho !== undefined) v.rho = override.rho;
   const agb = eq.compute(v);
   return agb !== null && Number.isFinite(agb) ? agb : null;
 };
@@ -179,7 +223,7 @@ export const computeAGB = (equationId: string, row: ForestDataRow): number | nul
 export const isOutsideRange = (equationId: string, row: ForestDataRow): boolean => {
   const eq = EQUATIONS[equationId];
   if (!eq?.range) return false;
-  const { D, H } = readTree(row);
+  const { D, H } = readTree(row, eq.diameter);
   const out = (x: number, r?: [number, number]) => !!r && Number.isFinite(x) && (x < r[0] || x > r[1]);
   return out(D, eq.range.D) || (eq.needsHeight && out(H, eq.range.H));
 };
@@ -193,4 +237,13 @@ export interface EquationUsage {
   trees: number;
   computed: number;
   outsideRange: number;
+  /** Columnas que faltaban en los individuos sin resultado, con su número. */
+  missing: Record<string, number>;
 }
+
+/** Error residual del modelo en escala de logaritmo natural (null si la fuente verificada no lo da). */
+export const residualSdLn = (equationId: string): number | null => {
+  const r = EQUATIONS[equationId]?.rse;
+  if (!r) return null;
+  return r.scale === 'ln' ? r.value : r.value * Math.LN10;
+};

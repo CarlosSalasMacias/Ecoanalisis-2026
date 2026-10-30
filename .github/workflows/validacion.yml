@@ -29,7 +29,7 @@ jobs:
           use-public-rspm: true
 
       - name: Instalar paquetes de R de referencia
-        run: Rscript -e 'install.packages(c("vegan", "jsonlite", "labdsv", "iNEXT", "indicspecies"))'
+        run: Rscript -e 'install.packages(c("vegan", "jsonlite", "labdsv", "iNEXT", "indicspecies", "dunn.test"))'
 
       - name: Generar valores de referencia con R
         run: Rscript validation/generate_reference.R
