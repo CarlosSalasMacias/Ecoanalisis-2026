@@ -39,7 +39,8 @@ dan siempre los mismos resultados.
 | Pantropical con altura | Chave et al. 2014, ec. 4 | DAP | Comprobada en el PDF original |
 | Bosque seco, húmedo, muy húmedo (con y sin altura) | Chave et al. 2005 | DAP | Comprobadas en Hairiah et al. 2011, Tabla 2 |
 | Café (d15; d15 + altura) | Segura et al. 2006, Tabla 3, ec. 3 y 4 | d15 | Comprobadas en el PDF original |
-| Cacao | Yuliasmara 2008, en Hairiah et al. 2011, Tabla 3 | DAP | Comprobada en la compilación (fuente secundaria) |
+| Cacao (por defecto) | Andrade et al. 2008 | d30 | Coincide con Suárez et al. 2025, Tabla 1; **pendiente del PDF original** |
+| Cacao (alternativa) | Yuliasmara 2008, en Hairiah et al. 2011, Tabla 3 | DAP | Comprobada en la compilación (fuente secundaria) |
 | Banano (*Musa* sp.) | Arifin 2001, en Hairiah et al. 2011, Tabla 3 | DAP | Comprobada en la compilación (fuente secundaria) |
 | Cacao d30 (atribuida a Fomekong et al. 2024) | — | d30 | **Sin verificar** |
 | *Citrus sinensis* (atribuida a Schroth et al. 2002) | — | DAP | **Sin verificar** |

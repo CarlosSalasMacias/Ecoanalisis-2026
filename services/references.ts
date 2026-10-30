@@ -197,6 +197,12 @@ export const REFERENCES: Record<string, Reference> = {
     container: 'IGES, Hayama, Japan', url: 'https://www.ipcc-nggip.iges.or.jp/public/2006gl/vol4.html',
     verification: 'manual', verificationNote: 'Fracción de carbono 0.47 (Tabla 4.3). Comprobar la tabla antes de publicar.',
   },
+  andrade2008: {
+    key: 'andrade2008', authors: ['Andrade, H. J.', 'Segura, M.', 'Somarriba, E.', 'Villalobos, M.'], year: 2008,
+    title: 'Valoración biofísica y financiera de la fijación de carbono por uso del suelo en fincas cacaoteras indígenas de Talamanca, Costa Rica',
+    container: 'Agroforestería en las Américas', volume: '46', pages: '45–50', verification: 'manual',
+    verificationNote: 'Datos bibliográficos y ecuación de cacao (d30) pendientes de comprobar en el PDF original.',
+  },
   schroth2002: {
     key: 'schroth2002',
     authors: ['Schroth, G.', "D'Angelo, S. A.", 'Teixeira, W. G.', 'Haag, D.', 'Lieberei, R.'], year: 2002,
@@ -215,7 +221,7 @@ export const METHOD_REFERENCES = {
   rarefaction: ['hurlbert1971', 'chao2014', 'hsieh2016', 'chaoJost2012'],
   indval: ['dufrene1997', 'deCaceres2009', 'deCaceres2010', 'benjamini1995'],
   structure: ['curtis1951'],
-  biomass: ['chave2005', 'chave2014', 'segura2006', 'hairiah2011', 'ipcc2006'],
+  biomass: ['chave2005', 'chave2014', 'segura2006', 'andrade2008', 'hairiah2011', 'ipcc2006'],
 } as const;
 
 export type MethodId = keyof typeof METHOD_REFERENCES;

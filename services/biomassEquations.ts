@@ -93,8 +93,16 @@ export const EQUATIONS: Record<string, AllometricEquation> = {
     verificationNote: 'Comprobada en el PDF original (Tabla 3, ecuación 4).',
     compute: ({ D, H }) => Math.pow(10, -1.113 + 1.578 * Math.log10(D) + 0.581 * Math.log10(H)),
   },
+  // Cacao medido a 30 cm del suelo (d30), como es habitual en Latinoamérica.
   cacao: {
-    id: 'cacao', label: 'Cacao (Yuliasmara, 2008, en Hairiah et al., 2011)', reference: 'hairiah2011',
+    id: 'cacao', label: 'Cacao, d30 (Andrade et al., 2008)', reference: 'andrade2008',
+    formula: 'log10(AGB) = −1.625 + 2.63 log10(d30)', diameter: 'd30', needsHeight: false, needsDensity: false,
+    verified: false,
+    verificationNote: 'Pendiente del PDF original. Coincide con la forma en logaritmo natural que imprime Suárez et al. (2025, Tabla 1): ln(AGB) = −3.74 + 2.63 ln(d30), ya que −1.625 × ln 10 = −3.74.',
+    compute: ({ D }) => Math.pow(10, -1.625 + 2.63 * Math.log10(D)),
+  },
+  cacao_dap: {
+    id: 'cacao_dap', label: 'Cacao, DAP (Yuliasmara, 2008, en Hairiah et al., 2011)', reference: 'hairiah2011',
     primarySource: 'Yuliasmara (2008)',
     formula: 'AGB = 0.1208 × D^1.98', diameter: 'dbh', needsHeight: false, needsDensity: false, verified: true,
     verificationNote: 'Comprobada en Hairiah et al. (2011), Tabla 3 (fuente secundaria; el manual define D como DAP).',

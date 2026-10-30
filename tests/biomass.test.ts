@@ -44,8 +44,15 @@ describe('allometric equation registry (coefficients as printed in the sources)'
     expectClose(computeAGB('cafe_altura', tree('Coffea arabica', 4, 2))!, 10 ** (-1.113 + 1.578 * Math.log10(4) + 0.581 * Math.log10(2)), 1e-12);
   });
 
-  it('Hairiah et al. (2011) Table 3: cacao and banana', () => {
-    expectClose(computeAGB('cacao', tree('Theobroma cacao', 10))!, 0.1208 * 10 ** 1.98, 1e-12);
+  it('cacao by d30 (Andrade et al. 2008) equals the natural-log form printed by Suárez et al. (2025)', () => {
+    const agb = computeAGB('cacao', tree('Theobroma cacao', 11))!;
+    expectClose(agb, 10 ** (-1.625 + 2.63 * Math.log10(11)), 1e-12);
+    expect(Math.abs(Math.log(agb) - (-3.74 + 2.63 * Math.log(11)))).toBeLessThan(0.002);
+    expect(EQUATIONS.cacao.diameter).toBe('d30');
+  });
+
+  it('Hairiah et al. (2011) Table 3: cacao (DBH) and banana', () => {
+    expectClose(computeAGB('cacao_dap', tree('Theobroma cacao', 10))!, 0.1208 * 10 ** 1.98, 1e-12);
     expectClose(computeAGB('musa_sp', tree('Musa paradisiaca', 20))!, 0.03 * 20 ** 2.13, 1e-12);
   });
 
