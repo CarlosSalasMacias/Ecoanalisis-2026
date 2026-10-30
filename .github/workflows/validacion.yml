@@ -40,7 +40,10 @@ jobs:
       - name: Bibliografía contra Crossref
         env:
           CHECK_REFERENCES: '1'
-        run: npx vitest run tests/references.crossref.test.ts
+        run: |
+          npx vitest run tests/references.crossref.test.ts --reporter=default --reporter=json --outputFile=crossref.json || status=$?
+          node -e "const r=require('./crossref.json'); console.log('::notice title=Bibliografía::'+r.numPassedTests+' referencias coinciden con Crossref, '+r.numFailedTests+' no coinciden, '+r.numPendingTests+' sin comprobar'); r.testResults.forEach(f=>f.assertionResults.filter(a=>a.status==='failed').forEach(a=>console.log('::error title=Referencia '+a.title+'::'+a.failureMessages.join(' ').split('\\n')[0]))); if (r.numPassedTests + r.numFailedTests === 0) process.exit(1)"
+          exit ${status:-0}
 
       - name: Guardar valores de referencia generados
         if: always()

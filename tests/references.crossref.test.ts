@@ -5,7 +5,7 @@
  * Necesita acceso a internet, así que solo se ejecuta con CHECK_REFERENCES=1 (lo hace el workflow
  * "Validación contra R"). Localmente: CHECK_REFERENCES=1 npx vitest run tests/references.crossref.test.ts
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { REFERENCES } from '../services/references';
 
 const enabled = process.env.CHECK_REFERENCES === '1';
@@ -35,11 +35,6 @@ async function fetchCrossref(doi: string): Promise<any> {
 }
 
 describe.skipIf(!enabled)('bibliografía contra Crossref', () => {
-  let checked = 0;
-  afterAll(() => {
-    // Aparece como anotación en GitHub Actions: confirma cuántas referencias se comprobaron.
-    console.log(`::notice title=Bibliografía::${checked} de ${withDoi.length} referencias con DOI coinciden con Crossref`);
-  });
   it.each(withDoi.map(r => [r.key, r] as const))('%s', async (_key, ref) => {
     const m = await fetchCrossref(ref.doi!);
     const problems: string[] = [];
@@ -61,7 +56,6 @@ describe.skipIf(!enabled)('bibliografía contra Crossref', () => {
     if (ref.volume && m.volume && String(m.volume) !== ref.volume) problems.push(`volumen: ${m.volume}`);
     if (ref.pages && m.page && pageStart(String(m.page)) !== pageStart(ref.pages)) problems.push(`páginas: ${m.page}`);
 
-    if (problems.length === 0) checked++;
     expect(problems, `${ref.key} (${ref.doi}) no coincide con Crossref → ${problems.join('; ')}`).toEqual([]);
   });
 });
