@@ -30,7 +30,7 @@ describe('biomass and carbon', () => {
   });
 });
 
-import { EQUATIONS, computeAGB, equationForRow, isCrop, isOutsideRange, missingInputs } from '../services/biomassEquations';
+import { EQUATIONS, computeAGB, cropKind, diameterFromDapColumn, equationForRow, isCrop, isOutsideRange, missingInputs } from '../services/biomassEquations';
 import { parseData, runStructuralAnalysis } from '../services/analysisService';
 import { REFERENCES } from '../services/references';
 
@@ -124,11 +124,11 @@ describe('allometric equation registry (coefficients as printed in the sources)'
 
 describe('diameter columns and crops', () => {
   it('each equation reads its own diameter column and reports what is missing', () => {
-    const cacaoOnlyDbh = tree('Theobroma cacao', 12, undefined, undefined, 'DAP (cm)');
-    expect(computeAGB('cacao', cacaoOnlyDbh)).toBeNull();
-    expect(missingInputs('cacao', cacaoOnlyDbh)).toBe('D30 (cm)');
+    const cacaoNoDiameter = tree('Theobroma cacao', NaN);
+    expect(computeAGB('cacao', cacaoNoDiameter)).toBeNull();
+    expect(missingInputs('cacao', cacaoNoDiameter)).toBe('D30 (cm)');
     expect(computeAGB('cacao', tree('Theobroma cacao', 12))).toBeGreaterThan(0);
-    const res = runBiomassAnalysis([cacaoOnlyDbh, tree('Theobroma cacao', 12)], {}, { SAF: { numPlots: '1', plotArea: '1000' } }, []);
+    const res = runBiomassAnalysis([cacaoNoDiameter, tree('Theobroma cacao', 12)], {}, { SAF: { numPlots: '1', plotArea: '1000' } }, []);
     expect(res.equationsUsed[0].missing).toEqual({ 'D30 (cm)': 1 });
   });
 
@@ -157,5 +157,46 @@ describe('diameter columns and crops', () => {
     const total = Object.values(st.iviWithoutCrops.General).reduce((a: number, m: any) => a + m.ivi300, 0);
     expectClose(total, 300, 0.05);
     expect(st.basalAreaSources).toEqual({ D30: 2, DAP: 2 });
+  });
+});
+
+describe('field protocol: a single diameter column for every species', () => {
+  const row = (sci: string, dap: number, extra: Record<string, unknown> = {}) => ({
+    'Tipo de vegetación': 'SAF', Parcela: 'P1', 'Nombre científico (Completo)': sci, 'DAP (cm)': dap, 'Altura (m)': '', ...extra,
+  }) as any;
+
+  it('cacao and citrus read d30, and coffee reads d15, from the DAP column when their own column is empty', () => {
+    expectClose(computeAGB('cacao', row('Theobroma cacao', 12))!, 10 ** (-1.625 + 2.63 * Math.log10(12)), 1e-12);
+    expectClose(computeAGB('cafe', row('Coffea arabica', 4))!, 10 ** (-1.181 + 1.991 * Math.log10(4)), 1e-12);
+    const AB = Math.PI * 7.5 ** 2;
+    expectClose(computeAGB('citrus', row('Citrus sinensis', 15))!, -6.64 + 0.279 * AB + 0.000514 * AB * AB, 1e-12);
+  });
+
+  it('a value in the crop\'s own column takes precedence over the DAP column', () => {
+    expectClose(computeAGB('cacao', row('Theobroma cacao', 99, { 'D30 (cm)': 12 }))!, 10 ** (-1.625 + 2.63 * Math.log10(12)), 1e-12);
+  });
+
+  it('crops are recognised by scientific name (with common typos) or by common name', () => {
+    expect(cropKind(row('Thebroma cacao', 10))).toBe('cacao');
+    expect(cropKind(row('', 10, { 'N.Com_identificado': 'Cacao' }))).toBe('cacao');
+    expect(cropKind(row('', 10, { 'N.Com_campo': 'Café' }))).toBe('cafe');
+    expect(cropKind(row('Caffe arabica', 10))).toBe('cafe');
+    expect(cropKind(row('', 10, { 'N.Com_identificado': 'Naranja' }))).toBe('citricos');
+    expect(cropKind(row('', 10, { 'N.Com_campo': 'Plátano' }))).toBe('musaceas');
+    expect(cropKind(row('Theobroma bicolor', 10))).toBeNull();
+    expect(cropKind(row('Cedrela odorata', 10))).toBeNull();
+  });
+
+  it('other species keep using the DAP as DBH', () => {
+    expect(diameterFromDapColumn(row('Cedrela odorata', 20), 'd30')).toBe(false);
+    expect(diameterFromDapColumn(row('Musa paradisiaca', 20), 'dbh')).toBe(false);
+  });
+
+  it('the report counts trees whose d15/d30 came from the DAP column, and basal area is labelled accordingly', () => {
+    const res = runBiomassAnalysis([row('Theobroma cacao', 12), row('Theobroma cacao', 9, { 'D30 (cm)': 11 })], {}, { SAF: { numPlots: '1', plotArea: '1000' } }, []);
+    expect(res.equationsUsed[0].fromDapColumn).toBe(1);
+    const parsed = parseData([['Tipo de vegetación', 'Parcela', 'Nombre científico (Completo)', 'DAP (cm)', 'D30 (cm)'],
+      ['SAF', 'P1', 'Theobroma cacao', '12', ''], ['SAF', 'P1', 'Theobroma cacao', '9', '11'], ['SAF', 'P1', 'Cedrela odorata', '30', '']], true);
+    expect(parsed.map((r: any) => r['Diámetro del área basal'])).toEqual(['D30', 'DAP', 'DAP']);
   });
 });

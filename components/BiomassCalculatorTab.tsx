@@ -429,6 +429,9 @@ const EquationUsagePanel: React.FC<{ results: BiomassAnalysisResults }> = ({ res
                 {usage.some(u => !u.verified) && <li className="text-red-700">{t.unverifiedEquationWarning}</li>}
                 {usage.some(u => u.diameter !== 'dbh') && <li>{t.diameterWarning}</li>}
                 {usage.some(u => u.outsideRange > 0) && <li>{t.outsideRangeWarning}</li>}
+                {usage.some(u => (u.fromDapColumn ?? 0) > 0) && (
+                    <li>{t.fromDapColumnNote.replace('{n}', String(usage.reduce((a, u) => a + (u.fromDapColumn ?? 0), 0)))}</li>
+                )}
                 {usage.some(u => Object.keys(u.missing ?? {}).length > 0) && (
                     <li className="text-amber-800">{t.missingInputsWarning}{' '}
                         {usage.filter(u => Object.keys(u.missing ?? {}).length > 0).map(u =>

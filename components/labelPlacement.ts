@@ -3,7 +3,7 @@
  *
  * Cada etiqueta se coloca por turnos (primero las flechas ambientales, luego las especies más
  * abundantes). Para cada una se prueban posiciones alrededor de su punto, a distancias crecientes y
- * en 16 direcciones, empezando por la dirección que se aleja del centro del gráfico. Se elige la
+ * en 24 direcciones, empezando por la dirección que se aleja del centro del gráfico. Se elige la
  * posición más cercana que no tape otras etiquetas ya colocadas, puntos, flechas ni bordes; si
  * ninguna está libre, la que menos superposición tiene. Cuando la etiqueta queda lejos de su punto,
  * se dibuja un conector hasta el borde más cercano de la etiqueta.
@@ -48,8 +48,8 @@ export interface PlacementInput {
   center: { x: number; y: number };
 }
 
-const RADII = [3, 8, 14, 22, 32, 44, 58, 74, 92, 115, 140];
-const N_ANGLES = 16;
+const RADII = [3, 8, 14, 22, 32, 44, 58, 74, 92, 115, 140, 170, 205, 245, 290];
+const N_ANGLES = 24;
 
 const area = (a: Box, b: Box) =>
   Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));

@@ -38,14 +38,20 @@ dan siempre los mismos resultados.
 
 | Columna | Uso |
 |---|---|
-| `DAP (cm)` | Diámetro a 1,3 m: árboles, cítricos, banano |
-| `D30 (cm)` | Diámetro a 30 cm: cacao |
+| `DAP (cm)` | Diámetro a 1,3 m: árboles y musáceas |
+| `D30 (cm)` | Diámetro a 30 cm: cacao y cítricos |
 | `D15 (cm)` | Diámetro a 15 cm: café |
 | `Altura (m)` | Ecuaciones con altura (Chave 2005/2014, café ec. 4) |
 | `Densidad (g/cm3)` | Opcional: si está vacía, se toma de la GWDD v2.2 |
 | `Cultivo` | Opcional (sí/no): marca qué individuos son cultivo para el IVI sin cultivo |
 
 El área basal del IVI usa el DAP; en los individuos sin DAP usa D30 o D15, y la app indica cuántos.
+
+**Una sola columna de diámetro.** Si en café, cacao o cítricos la columna D15 o D30 está vacía, la app
+toma el valor de `DAP (cm)` como medido a 15 cm (café) o 30 cm (cacao y cítricos), según el protocolo de
+campo. Estos cultivos se reconocen por el nombre científico o común (*Coffea*/café, cacao, *Citrus*/naranja,
+limón, mandarina, toronja; *Musa*/plátano, banano). El informe y la metodología indican cuántos individuos
+se leyeron así. Si la columna propia tiene dato, se usa esa.
 
 ## Densidad de la madera (GWDD v2.2)
 
