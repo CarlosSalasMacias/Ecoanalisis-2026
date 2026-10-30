@@ -30,7 +30,12 @@ const parseAiResponseToParagraphs = (text: string): Paragraph[] => {
 
         cleanLine = cleanLine.replace(/\*\*/g, '').replace(/\*/g, '');
 
-        if (cleanLine.startsWith('### ')) {
+        if (/^#{1,2}\s/.test(cleanLine)) {
+            paragraphs.push(new Paragraph({
+                text: cleanLine.replace(/^#{1,2}\s*/, ''),
+                style: 'heading1',
+            }));
+        } else if (cleanLine.startsWith('### ')) {
             paragraphs.push(new Paragraph({
                 text: cleanLine.replace(/###\s*(\d+\.\s*)?/, ''), // Remove markdown and optional numbering
                 style: 'heading2',

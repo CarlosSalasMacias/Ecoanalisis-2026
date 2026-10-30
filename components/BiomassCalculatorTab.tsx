@@ -202,7 +202,7 @@ const BiomassCalculatorTab: React.FC<BiomassCalculatorTabProps> = ({ results }) 
       const headers = [t.taxonSpecies, t.agbMgTotal, t.carbonMgTotal];
       const rows = Object.entries(taxonMap.species)
           .sort((a, b) => Number(b[1]) - Number(a[1]))
-          .map(([name, carbon]) => [name, (Number(carbon) * 2).toFixed(2), Number(carbon).toFixed(2)]);
+          .map(([name, carbon]) => [name, (Number(carbon) / results.carbonFraction).toFixed(2), Number(carbon).toFixed(2)]);
       exportDataToCSV(headers, rows, 'biomass_summary_by_species.csv');
   };
 
@@ -227,6 +227,8 @@ const BiomassCalculatorTab: React.FC<BiomassCalculatorTabProps> = ({ results }) 
             </div>
         </div>
 
+        <EquationUsagePanel results={results} />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div className="space-y-8">
                 <TableSection title={t.summaryByVegType} onExport={handleExportSummary}>
@@ -238,7 +240,7 @@ const BiomassCalculatorTab: React.FC<BiomassCalculatorTabProps> = ({ results }) 
                 </TableSection>
                 
                 <TableSection title={t.summaryBySpecies} onExport={handleExportSpeciesSummary}>
-                    <DataTable headers={[t.taxonSpecies, t.agbMgTotal, t.carbonMgTotal]} rows={Object.entries(taxonMap.species).sort((a, b) => Number(b[1]) - Number(a[1])).map(([name, carbon]) => [name, (Number(carbon) * 2).toFixed(2), Number(carbon).toFixed(2)])} />
+                    <DataTable headers={[t.taxonSpecies, t.agbMgTotal, t.carbonMgTotal]} rows={Object.entries(taxonMap.species).sort((a, b) => Number(b[1]) - Number(a[1])).map(([name, carbon]) => [name, (Number(carbon) / results.carbonFraction).toFixed(2), Number(carbon).toFixed(2)])} />
                 </TableSection>
             </div>
 
@@ -311,6 +313,52 @@ const BiomassCalculatorTab: React.FC<BiomassCalculatorTabProps> = ({ results }) 
   );
 };
 
+
+const DIAMETER_LABEL: Record<string, string> = { dbh: 'DAP (1,3 m)', d15: 'd15 (15 cm)', d30: 'd30 (30 cm)' };
+
+/** Ecuaciones aplicadas y avisos que deben revisarse antes de publicar. */
+const EquationUsagePanel: React.FC<{ results: BiomassAnalysisResults }> = ({ results }) => {
+    const t = useTranslations();
+    const usage = results.equationsUsed ?? [];
+    if (usage.length === 0) return null;
+    return (
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <h4 className="text-md font-bold text-secondary uppercase tracking-tight mb-3">{t.equationsUsedTitle}</h4>
+            <div className="overflow-x-auto">
+                <table className="min-w-full text-xs text-left text-gray-600">
+                    <thead className="bg-gray-50 uppercase tracking-wider border-b">
+                        <tr>
+                            <th className="p-2">{t.equationColumn}</th>
+                            <th className="p-2">{t.diameterExpected}</th>
+                            <th className="p-2 text-right">{t.individualsColumn}</th>
+                            <th className="p-2 text-right">{t.withoutResult}</th>
+                            <th className="p-2 text-right">{t.outsideRange}</th>
+                            <th className="p-2">{t.verificationColumn}</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {usage.map(u => (
+                            <tr key={u.equation} className={u.verified ? '' : 'bg-red-50'}>
+                                <td className="p-2">{u.label}</td>
+                                <td className="p-2">{DIAMETER_LABEL[u.diameter]}</td>
+                                <td className="p-2 text-right">{u.trees}</td>
+                                <td className={`p-2 text-right ${u.trees - u.computed > 0 ? 'text-amber-700 font-semibold' : ''}`}>{u.trees - u.computed}</td>
+                                <td className={`p-2 text-right ${u.outsideRange > 0 ? 'text-amber-700 font-semibold' : ''}`}>{u.outsideRange}</td>
+                                <td className={`p-2 ${u.verified ? 'text-green-700' : 'text-red-700 font-semibold'}`}>{u.verified ? t.verifiedYes : t.verifiedNo}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <ul className="mt-3 text-xs text-gray-600 list-disc pl-5 space-y-1">
+                {usage.some(u => !u.verified) && <li className="text-red-700">{t.unverifiedEquationWarning}</li>}
+                {usage.some(u => u.diameter !== 'dbh') && <li>{t.diameterWarning}</li>}
+                {usage.some(u => u.outsideRange > 0) && <li>{t.outsideRangeWarning}</li>}
+                {results.withoutEquation > 0 && <li>{t.withoutEquationWarning.replace('{n}', String(results.withoutEquation))}</li>}
+            </ul>
+        </div>
+    );
+};
 
 const TableSection: React.FC<{ title: string; onExport: () => void; children: React.ReactNode }> = ({ title, onExport, children }) => {
     const t = useTranslations();

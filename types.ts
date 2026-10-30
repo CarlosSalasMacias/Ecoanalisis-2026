@@ -352,6 +352,10 @@ export interface BiomassAnalysisResults {
   processedData: ForestDataRow[];
   originalHeaders: string[];
   carbonFraction: number;
+  /** Ecuaciones aplicadas, con número de individuos y avisos de rango. */
+  equationsUsed: import('./services/biomassEquations').EquationUsage[];
+  /** Individuos sin ecuación asignada (no suman biomasa). */
+  withoutEquation: number;
 }
 
 export interface BiomassConfig {

@@ -55,7 +55,7 @@ export const generateFinalInterpretation = async (prompt: string): Promise<strin
             model: 'gemini-3.5-flash',
             contents: prompt,
             config: {
-                temperature: 0.4,
+                temperature: 0.2,
                 topP: 0.95,
                 topK: 64,
                 maxOutputTokens: 8192, // Safe limit for flash model output
@@ -69,30 +69,5 @@ export const generateFinalInterpretation = async (prompt: string): Promise<strin
             throw error;
         }
         throw new Error(error.message || "The Gemini API call for interpretation failed.");
-    }
-};
-
-/**
- * Generates a scientific methodology section.
- */
-export const generateMethodology = async (prompt: string): Promise<string> => {
-    try {
-        const ai = getAIClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.5-flash',
-            contents: prompt,
-            config: {
-                temperature: 0.2,
-                maxOutputTokens: 8192, 
-                safetySettings,
-            }
-        });
-        return response.text as string;
-    } catch (error: any) {
-        console.error("Error generating methodology with Gemini API:", error);
-        if (error.message && error.message.includes("API Key")) {
-            throw error;
-        }
-        throw new Error(error.message || "The Gemini API call for methodology failed.");
     }
 };

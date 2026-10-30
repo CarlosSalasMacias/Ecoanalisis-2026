@@ -6,6 +6,17 @@ import { indicatorSpecies } from './stats/indval';
 import { cca, ccaPermutationTest, groupEllipses } from './stats/cca';
 import { rarefactionExtrapolation } from './stats/inext';
 import { DEFAULT_SEED } from './stats/random';
+/** Parámetros fijos de los análisis; la metodología generada los lee de aquí. */
+export const ANALYSIS_SETTINGS = {
+    seed: DEFAULT_SEED,
+    alpha: 0.05,
+    cooccurrence: { threshold: true, adjust: true },
+    indval: { nPermutations: 999 },
+    cca: { nPermutations: 999, ellipseConf: 0.95 },
+    rarefaction: { nBoot: 100, conf: 0.95 },
+} as const;
+
+import { EQUATIONS, EquationUsage, computeAGB, equationForRow, isOutsideRange } from './biomassEquations';
 import { SpeciesData, SiteData, CooccurrenceMatrix, CooccurrenceResult, SignificantPair, EnvironmentalAnalysisResult, AllEnvironmentalAnalyses, SingleNicheData, SiteNicheData, StructuralAnalysisResult, SpeciesStructuralMetrics, CorrelationMatrix, CCACoordinates, EllipseData, IndValResult, SiteStructuralAnalysis, SiteCooccurrenceMatrix, ForestDataRow, EquationSelection, PlotInfo, SummaryRow, BiomassAnalysisResults, SiteEcologicalParameters, FullStructuralAnalysis, SiteStandCharacteristics, PlotSummaryRow, RarefactionData, RarefactionCurve, SingleCCAPlotData, CooccurrenceResult as _CR } from '../types';
 
 /**
@@ -182,7 +193,7 @@ const getSpeciesPresenceByLocation = (speciesData: SpeciesData[]): { [locationKe
 const calculateCooccurrenceForSubset = (speciesData: SpeciesData[]): CooccurrenceMatrix => {
     const locations = getSpeciesPresenceByLocation(speciesData);
     if (Object.keys(locations).length === 0) return {};
-    const result = cooccurrenceAnalysis(locations, { alpha: 0.05, threshold: true, adjust: true });
+    const result = cooccurrenceAnalysis(locations, { alpha: ANALYSIS_SETTINGS.alpha, ...ANALYSIS_SETTINGS.cooccurrence });
     if (result.species.length < 2) return {};
 
     const matrix: CooccurrenceMatrix = {};
@@ -658,7 +669,7 @@ export function runIndValAnalysis(speciesData: SpeciesData[], targetSite?: strin
     const groups = community.groups.map(g => (targetSite ? (g === targetSite ? targetSite : OTHER_GROUP) : g));
     if (new Set(groups).size < 2) return {};
 
-    const out = indicatorSpecies(community.abundance, community.species, groups, { nPermutations: 999, seed: DEFAULT_SEED });
+    const out = indicatorSpecies(community.abundance, community.species, groups, { nPermutations: ANALYSIS_SETTINGS.indval.nPermutations, seed: ANALYSIS_SETTINGS.seed });
     const results: IndValResult = {};
     out.species.forEach(sp => {
         results[sp.species] = {};
@@ -819,7 +830,7 @@ export function runCCAAnalysis(speciesData: SpeciesData[], siteData: SiteData): 
         envNames: vars,
     };
     const res = cca(input);
-    const test = ccaPermutationTest(input, { nPermutations: 999, seed: DEFAULT_SEED });
+    const test = ccaPermutationTest(input, { nPermutations: ANALYSIS_SETTINGS.cca.nPermutations, seed: ANALYSIS_SETTINGS.seed });
 
     // Label the 15 most abundant species; the rest are drawn as unlabeled points
     const labeled = new Set(
@@ -828,7 +839,7 @@ export function runCCAAnalysis(speciesData: SpeciesData[], siteData: SiteData): 
     const species: CCACoordinates[] = res.species.map(s => ({ name: s.name, x: s.x, y: s.y, isBackground: !labeled.has(s.name) }));
     const sites: CCACoordinates[] = res.sitesWA.map((s, k) => ({ name: s.name, x: s.x, y: s.y, group: groups[k] }));
     const ellipses = new Set(groups).size > 1
-        ? groupEllipses(res.sitesWA, groups).map(e => ({ cx: e.cx, cy: e.cy, rx: e.rx, ry: e.ry, angle: e.angle, group: e.group }))
+        ? groupEllipses(res.sitesWA, groups, ANALYSIS_SETTINGS.cca.ellipseConf).map(e => ({ cx: e.cx, cy: e.cy, rx: e.rx, ry: e.ry, angle: e.angle, group: e.group }))
         : [];
 
     if (res.rank < 2) notes.push('Solo hay un eje restringido (una variable ambiental): el eje vertical del gráfico es nulo.');
@@ -879,7 +890,7 @@ export function calculateRarefactionData(allSpeciesData: SpeciesData[]): Rarefac
         const values = Object.values(counts);
         const n = values.reduce((a, b) => a + b, 0);
         if (n < 2) return;
-        const res = rarefactionExtrapolation(values, { nBoot: 100, seed: DEFAULT_SEED });
+        const res = rarefactionExtrapolation(values, { nBoot: ANALYSIS_SETTINGS.rarefaction.nBoot, conf: ANALYSIS_SETTINGS.rarefaction.conf, seed: ANALYSIS_SETTINGS.seed });
 
         const toCurve = (q: 0 | 1 | 2): RarefactionCurve => {
             const pts = res.curves.find(c => c.q === q)!.points;
@@ -912,119 +923,10 @@ export function calculateRarefactionData(allSpeciesData: SpeciesData[]): Rarefac
 
 // --- BIOMASS CALCULATION LOGIC ---
 
-export const EQUATION_OPTIONS: Record<string, string> = {
-    '': 'Seleccione una ecuación',
-    cacao: 'Cacao (Fomekong et al., 2024)',
-    cafe: 'Café (Segura et al., 2006)',
-    citrus_sinensis: 'Citrus sinensis (Schroth et al., 2002)',
-    musa_sp: 'Musa sp. (Hairiah et al., 2001)',
-    dry: 'Dry Forest (Chave et al., 2005)',
-    moist: 'Moist Forest (Chave et al., 2005)',
-    wet: 'Wet Forest (Chave et al., 2005)',
-    generic_no_height: 'Bosque Tropical Genérico (Chave et al., 2005, sin altura)',
-    chave2014: 'Pantropical con altura (Chave et al., 2014, ec. 4)',
-};
+export { EQUATION_OPTIONS } from './biomassEquations';
 
 /** Default carbon fraction of dry biomass (IPCC 2006, Vol. 4, Table 4.3). */
 export const DEFAULT_CARBON_FRACTION = 0.47;
-
-const robustParse = (value: string | number | null | undefined): number => {
-    if (value === null || value === undefined) return NaN;
-    const strValue = String(value).trim().replace(',', '.');
-    if (strValue === '') return NaN;
-    return parseFloat(strValue);
-};
-
-const robustDAP = (row: ForestDataRow) => robustParse(row['DAP (cm)']);
-const robustHeight = (row: ForestDataRow) => robustParse(row['Altura (m)']);
-const robustDensity = (row: ForestDataRow) => robustParse(row['Densidad (g/cm3)']);
-
-
-const calculationFunctions: Record<string, (row: ForestDataRow) => number | null> = {
-    cacao: (row) => {
-        const d30 = robustDAP(row);
-        if (d30 > 0) {
-            return Math.exp(-1.613 + 1.83 * Math.log(d30));
-        }
-        return null;
-    },
-    cafe: (row) => {
-        const d15 = robustDAP(row);
-        if (d15 > 0) {
-            return Math.pow(10, -1.181 + 1.991 * Math.log10(d15));
-        }
-        return null;
-    },
-    citrus_sinensis: (row) => {
-        const dap = robustDAP(row);
-        if (dap > 0) {
-            const AB = calculateBasalArea(dap); 
-            const biomassInKg = -6.64 + 0.279 * AB + 0.000514 * Math.pow(AB, 2);
-            return Math.max(0, biomassInKg); 
-        }
-        return null;
-    },
-    musa_sp: (row) => {
-        const D = robustDAP(row);
-        if (D > 0) {
-            return 0.0303 * Math.pow(D, 2.1345);
-        }
-        return null;
-    },
-    dry: (row) => {
-        const p = robustDensity(row);
-        const D = robustDAP(row);
-        const H = robustHeight(row);
-        if (p > 0 && D > 0 && H > 0) {
-            return 0.112 * Math.pow(p * Math.pow(D, 2) * H, 0.916);
-        }
-        return null;
-    },
-    moist: (row) => {
-        const p = robustDensity(row);
-        const D = robustDAP(row);
-        const H = robustHeight(row);
-        if (p > 0 && D > 0 && H > 0) {
-            return 0.0509 * p * Math.pow(D, 2) * H;
-        }
-        return null;
-    },
-    wet: (row) => {
-        const p = robustDensity(row);
-        const D = robustDAP(row);
-        const H = robustHeight(row);
-        if (p > 0 && D > 0 && H > 0) {
-            return 0.0776 * Math.pow(p * Math.pow(D, 2) * H, 0.940);
-        }
-        return null;
-    },
-    // Chave et al. (2014) Glob. Change Biol. 20:3177–3190, Eq. 4: AGB (kg) = 0.0673 × (ρ D² H)^0.976
-    chave2014: (row) => {
-        const p = robustDensity(row);
-        const D = robustDAP(row);
-        const H = robustHeight(row);
-        if (p > 0 && D > 0 && H > 0) {
-            return 0.0673 * Math.pow(p * D * D * H, 0.976);
-        }
-        return null;
-    },
-    generic_no_height: (row) => {
-        const p = robustDensity(row);
-        const D = robustDAP(row);
-        if (p > 0 && D > 0) {
-             const lnD = Math.log(D);
-             return p * Math.exp(-1.499 + 2.148 * lnD + 0.207 * Math.pow(lnD, 2) - 0.0281 * Math.pow(lnD, 3));
-        }
-        return null;
-    },
-};
-
-const CACAO_SCIENTIFIC_NAME = 'theobroma cacao';
-const COFFEE_SCIENTIFIC_NAME = 'coffea';
-const COFFEE_COMMON_NAME_TILDE = 'café';
-const COFFEE_COMMON_NAME_NO_TILDE = 'cafe';
-const CITRUS_SCIENTIFIC_NAME = 'citrus sinensis';
-const MUSA_SCIENTIFIC_NAME = 'musa';
 
 const processBiomassData = (
     data: ForestDataRow[],
@@ -1032,41 +934,35 @@ const processBiomassData = (
     carbonFraction: number
 ): ForestDataRow[] => {
     return data.map(row => {
-        const scientificName = String(row['Nombre científico (Completo)'] || '').toLowerCase();
-        const vegetationType = row['Tipo de vegetación'] as string;
-        
-        let equationKeyToUse: string | null = null;
-
-        if (scientificName.includes(CACAO_SCIENTIFIC_NAME)) {
-            equationKeyToUse = 'cacao';
-        } else if (
-            scientificName.includes(COFFEE_SCIENTIFIC_NAME) || 
-            scientificName.includes(COFFEE_COMMON_NAME_TILDE) ||
-            scientificName.includes(COFFEE_COMMON_NAME_NO_TILDE)
-        ) {
-            equationKeyToUse = 'cafe';
-        } else if (scientificName.includes(CITRUS_SCIENTIFIC_NAME)) {
-            equationKeyToUse = 'citrus_sinensis';
-        } else if (scientificName.includes(MUSA_SCIENTIFIC_NAME)) {
-            equationKeyToUse = 'musa_sp';
-        } else if (typeof vegetationType === 'string' && selections[vegetationType]) {
-            equationKeyToUse = selections[vegetationType];
-        }
-
-        let agb_kg = null;
-        if (equationKeyToUse && calculationFunctions[equationKeyToUse]) {
-            agb_kg = calculationFunctions[equationKeyToUse](row);
-        }
-
+        const equation = equationForRow(row, selections);
+        const agb_kg = equation ? computeAGB(equation, row) : null;
         const agb_mg = agb_kg !== null ? agb_kg / 1000 : null;
         const carbon = agb_mg !== null ? agb_mg * carbonFraction : null;
-
         return {
             ...row,
+            'Ecuación': equation ?? '',
             'AGB_Mg': agb_mg,
             'Carbono_Almacenado_Mg': carbon,
         };
     });
+};
+
+/** Qué ecuaciones se usaron, en cuántos individuos y cuántos quedan fuera del rango de calibración. */
+const summarizeEquationUsage = (data: ForestDataRow[]): EquationUsage[] => {
+    const usage: Record<string, EquationUsage> = {};
+    data.forEach(row => {
+        const id = row['Ecuación'] as string;
+        if (!id) return;
+        const eq = EQUATIONS[id];
+        usage[id] ??= {
+            equation: id, label: eq.label, reference: eq.reference, verified: eq.verified,
+            diameter: eq.diameter, trees: 0, computed: 0, outsideRange: 0,
+        };
+        usage[id].trees++;
+        if (typeof row['AGB_Mg'] === 'number') usage[id].computed++;
+        if (isOutsideRange(id, row)) usage[id].outsideRange++;
+    });
+    return Object.values(usage).sort((a, b) => b.trees - a.trees);
 };
 
 const calculateSummaryAndTotals = (
@@ -1199,5 +1095,7 @@ export function runBiomassAnalysis(
 ): BiomassAnalysisResults {
   const processedData = processBiomassData(speciesData, equationSelections, carbonFraction);
   const { summary, totals, summaryByPlot } = calculateSummaryAndTotals(processedData, plotInfo);
-  return { summary, summaryByPlot, totals, processedData, originalHeaders, carbonFraction };
+  const equationsUsed = summarizeEquationUsage(processedData);
+  const withoutEquation = processedData.filter(r => !r['Ecuación']).length;
+  return { summary, summaryByPlot, totals, processedData, originalHeaders, carbonFraction, equationsUsed, withoutEquation };
 }

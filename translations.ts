@@ -160,6 +160,27 @@ const translations = {
     showEllipses: 'Mostrar elipses (95 %) por tipo de vegetación',
     carbonFraction: 'Fracción de carbono de la biomasa seca',
     carbonFractionHelp: 'Por defecto 0,47 (IPCC 2006, Vol. 4, Tabla 4.3). Use 0,5 solo para comparar con estudios que la emplearon, e informe el valor en la metodología.',
+    auditOkTitle: 'Revisión automática: sin problemas detectados',
+    auditWarningsTitle: 'Revisión automática: hay puntos que revisar antes de usar este texto',
+    auditUntraceable: 'Cifras que no aparecen en los resultados calculados:',
+    auditUnkeyed: 'Citas escritas por la IA fuera de la bibliografía verificada (elimínelas o sustitúyalas):',
+    auditInvalidKeys: 'Claves de cita inexistentes (marcadas como [CITA NO VÁLIDA]):',
+    auditRemovedReferences: 'La IA escribió su propia lista de referencias; se eliminó y se sustituyó por la bibliografía verificada.',
+    auditPlaceholders: 'Hay {n} marcas [COMPARAR: …] donde debe añadir la comparación con la literatura, con fuentes que haya leído.',
+    auditAlwaysReview: 'El texto es un borrador: los autores deben revisarlo y responden de su contenido.',
+    equationsUsedTitle: 'Ecuaciones alométricas aplicadas',
+    equationColumn: 'Ecuación',
+    diameterExpected: 'Diámetro que exige',
+    individualsColumn: 'Individuos',
+    withoutResult: 'Sin resultado',
+    outsideRange: 'Fuera de rango',
+    verificationColumn: 'Coeficientes',
+    verifiedYes: 'Verificados',
+    verifiedNo: 'SIN VERIFICAR',
+    unverifiedEquationWarning: 'Hay ecuaciones cuyos coeficientes no se han comprobado en la fuente original. No publique esos valores sin verificarlos.',
+    diameterWarning: 'Algunas ecuaciones exigen el diámetro a 15 o 30 cm del suelo, no el DAP. La columna «DAP (cm)» de esos individuos debe contener ese diámetro.',
+    outsideRangeWarning: 'Hay individuos fuera del rango de calibración publicado de su ecuación: el resultado es una extrapolación.',
+    withoutEquationWarning: '{n} individuos no tienen ecuación asignada y no se incluyen en la biomasa.',
     showSites: 'Mostrar parcelas',
     ccaArrowScale: 'Flechas reescaladas',
     ccaConstrainedInertia: 'Inercia restringida',
@@ -330,57 +351,6 @@ const translations = {
     legendBiomass: 'Biomasa Aérea',
     legendSoil: 'Suelo (COS)',
 
-    finalInterpretationPromptTemplate: `Como ecólogo cuantitativo experto, redacta una interpretación científica INTEGRAL y COHESIVA de los resultados adjuntos.
-
-**REGLAS CRÍTICAS DE REDACCIÓN:**
-1.  **CITAS EN EL TEXTO:** Debes incluir citas bibliográficas reales dentro del texto (formato: Autor, Año) para respaldar cada interpretación ecológica o estadística.
-2.  **BIBLIOGRAFÍA REAL:** Al final, incluye una sección de 'Referencias Bibliográficas' con la lista completa. Solo usa referencias reales y verificables. **Obligatorio incluir el DOI** para cada una.
-3.  **ESTILO:** Científico, riguroso y en español.
-4.  **EVITAR EL TRUNCAMIENTO (SÍNTESIS CIENTÍFICA):** El informe debe ser sumamente directo, conciso y sintetizado. Cada una de las 4 secciones estructurales debe ser breve y sustancial (máximo 2 párrafos concisos por sección). Esto es obligatorio para garantizar que el análisis de todos los apartados y la bibliografía se escriban por completo de principio a fin sin que el texto sea truncado a la mitad por límites de longitud. Limita el reporte completo a un máximo de 800-1000 palabras.
-
-**Estructura:**
-### 1. Dinámica de Co-ocurrencia y Asociación de Especies
-Discute los pares con asociaciones significativas (positivas o negativas). Cita a Veech (2013) sobre modelos de co-ocurrencia probabilística.
-### 2. Gradientes Ambientales y Distribución (Nicho y CCA)
-Integra los resultados del CCA. Cita a Ter Braak (1986) para el análisis de correspondencia canónica. Discute cómo los factores limitantes (pH, Nutrientes) definen el nicho realizado (Hutchinson, 1957).
-### 3. Diversidad Alfa y Complejidad Estructural
-Compara los sitios usando Shannon, Simpson y Chao-1. Cita a Magurran (2004) para diversidad y a Magurran & McGill (2011). Menciona la completitud del muestreo según Chao et al. (2014) en relación a la rarefacción.
-### 4. Almacenamiento de Carbono y Biomasa
-Interpreta los stocks de carbono. Cita a Chave et al. (2005 o 2014) sobre ecuaciones alométricas para bosques tropicales.
-
-**Datos:**
-{matrixString}
-{analysesString}
-{nicheString}
-{ccaString}
-{ecoParamsString}
-{indValString}
-{rarefactionString}
-{biomassString}
-{vegetationDescriptions}`,
-    methodologyPrompt: `Como ecólogo cuantitativo, redacta la sección de **Metodología** para un informe científico en español.
-
-**REQUISITOS OBLIGATORIOS:**
-1.  **CITAS EN EL TEXTO:** Cada método descrito debe incluir su cita bibliográfica real (Autor, Año).
-2.  **REFERENCIAS:** Al final, genera la lista de 'Referencias Bibliográficas' con formato APA y **OBLIGATORIAMENTE el DOI**. No inventes fuentes.
-3.  **SÍNTESIS DE MÉTODOS (EVITAR TRUNCAMIENTO):** Redacta cada sección de forma directa, técnica y compacta. Evita rodeos teóricos o introducciones extensas. Toda la metodología debe caber perfectamente de principio a fin sin ser truncada. Limita la longitud total a un máximo de 700 palabras.
-
-**Secciones a incluir:**
-### 1. Análisis de Co-ocurrencia Probabilística
-Describe el uso del modelo de distribución hipergeométrica para detectar asociaciones no aleatorias (Veech, 2013).
-### 2. Relaciones Especie-Ambiente y Nicho
-Describe el Análisis de Correspondencia Canónica (CCA) (Ter Braak, 1986) y el cálculo del nicho realizado basado en medias ponderadas.
-### 3. Evaluación de la Diversidad y Riqueza
-Explica los índices de Shannon, Simpson y el estimador Chao-1 (Magurran, 2004). Describe la metodología de Rarefacción y Extrapolación basada en números de Hill (Chao et al., 2014).
-### 4. Determinación de Especies Indicadoras
-Describe el método IndVal de Dufrêne & Legendre (1997).
-### 5. Análisis Estructural e Importancia Ecológica
-Explica el cálculo del Índice de Valor de Importancia (IVI) (Curtis & McIntosh, 1951).
-### 6. Estimación de Biomasa Aérea y Carbono
-Describe el uso de modelos alométricos pantropicales (Chave et al., 2014).
-
-**Contexto del estudio:**
-{vegetationDescriptions}`,
   },
   en: {
     // App.tsx
@@ -516,6 +486,27 @@ Describe el uso de modelos alométricos pantropicales (Chave et al., 2014).
     showEllipses: 'Show 95% ellipses by vegetation type',
     carbonFraction: 'Carbon fraction of dry biomass',
     carbonFractionHelp: 'Default 0.47 (IPCC 2006, Vol. 4, Table 4.3). Use 0.5 only to compare with studies that used it, and report the value in the methods.',
+    auditOkTitle: 'Automatic check: no problems detected',
+    auditWarningsTitle: 'Automatic check: review these points before using this text',
+    auditUntraceable: 'Figures that do not appear in the computed results:',
+    auditUnkeyed: 'Citations written by the AI outside the verified bibliography (remove or replace them):',
+    auditInvalidKeys: 'Citation keys that do not exist (marked as [INVALID CITATION]):',
+    auditRemovedReferences: 'The AI wrote its own reference list; it was removed and replaced with the verified bibliography.',
+    auditPlaceholders: 'There are {n} [COMPARE: …] markers where you should add the comparison with the literature, using sources you have read.',
+    auditAlwaysReview: 'This text is a draft: the authors must review it and are responsible for its content.',
+    equationsUsedTitle: 'Allometric equations applied',
+    equationColumn: 'Equation',
+    diameterExpected: 'Diameter required',
+    individualsColumn: 'Individuals',
+    withoutResult: 'No result',
+    outsideRange: 'Out of range',
+    verificationColumn: 'Coefficients',
+    verifiedYes: 'Verified',
+    verifiedNo: 'NOT VERIFIED',
+    unverifiedEquationWarning: 'Some equations have coefficients that were not checked against the original source. Do not publish those values without verifying them.',
+    diameterWarning: 'Some equations require the stem diameter at 15 or 30 cm above ground, not DBH. The "DAP (cm)" column for those individuals must hold that diameter.',
+    outsideRangeWarning: 'Some individuals are outside the published calibration range of their equation: the result is an extrapolation.',
+    withoutEquationWarning: '{n} individuals have no equation assigned and are not included in the biomass.',
     showSites: 'Show plots',
     ccaArrowScale: 'Arrows rescaled',
     ccaConstrainedInertia: 'Constrained inertia',
@@ -686,57 +677,6 @@ Describe el uso de modelos alométricos pantropicales (Chave et al., 2014).
     legendBiomass: 'Above-ground Biomass',
     legendSoil: 'Soil (SOC)',
 
-    finalInterpretationPromptTemplate: `As an expert quantitative ecologist, write a COMPREHENSIVE and COHESIVE scientific interpretation of the provided results.
-
-**CRITICAL WRITING RULES:**
-1.  **IN-TEXT CITATIONS:** You MUST include real bibliographic citations within the text (format: Author, Year) to support every ecological or statistical claim.
-2.  **REAL BIBLIOGRAPHY:** At the end, include a 'Bibliographic References' section. Only use real, verifiable sources. **Include the DOI** for every reference.
-3.  **STYLE:** Scientific, rigorous, and in English.
-4.  **PREVENT TRUNCATION (SCIENTIFIC SYNTHESIS):** The report must be highly direct, concise, and synthesized. Each of the 4 structural sections must be brief and substantial (maximum of 2 concise paragraphs per section). This is mandatory to ensure the entire analysis and bibliography are fully written without getting truncated or cut off mid-sentence due to system output length limits. Limit the entire report to a maximum of 800-1000 words.
-
-**Report Structure:**
-### 1. Species Co-occurrence and Association Dynamics
-Discuss significant pairs. Cite Veech (2013) for probabilistic co-occurrence models.
-### 2. Environmental Gradients and Distribution (Niche & CCA)
-Integrate CCA results. Cite Ter Braak (1986) for canonical correspondence analysis. Discuss limiting factors and the realized niche (Hutchinson, 1957).
-### 3. Alpha Diversity and Structural Complexity
-Compare sites using Shannon, Simpson, and Chao-1. Cite Magurran (2004) for diversity. Mention sampling completeness according to Chao et al. (2014).
-### 4. Carbon Stocks and Biomass Storage
-Interpret carbon stocks. Cite Chave et al. (2005 or 2014) for allometric equations in tropical forests.
-
-**Data:**
-{matrixString}
-{analysesString}
-{nicheString}
-{ccaString}
-{ecoParamsString}
-{indValString}
-{rarefactionString}
-{biomassString}
-{vegetationDescriptions}`,
-    methodologyPrompt: `As a quantitative ecologist, write the **Methodology** section for a scientific report in English.
-
-**MANDATORY REQUIREMENTS:**
-1.  **IN-TEXT CITATIONS:** Every method described must include its real bibliographic citation (Author, Year).
-2.  **REFERENCES:** At the end, generate a 'Bibliographic References' list in APA style with **mandatory DOIs**. Do not invent sources.
-3.  **METHOD SYNTHESIS (PREVENT TRUNCATION):** Write each section in a direct, highly technical, and compact manner. Avoid generic theoretical detours or long introductions. The entire methodology must fit perfectly and be fully written from start to finish without truncation. Limit total length to 700 words max.
-
-**Sections to include:**
-### 1. Probabilistic Co-occurrence Analysis
-Describe the hypergeometric distribution model for non-random associations (Veech, 2013).
-### 2. Species-Environment Relationships and Niche
-Describe Canonical Correspondence Analysis (CCA) (Ter Braak, 1986) and realized niche calculation.
-### 3. Diversity and Richness Assessment
-Explain Shannon, Simpson, and Chao-1 indices (Magurran, 2004). Describe Rarefaction and Extrapolation based on Hill numbers (Chao et al., 2014).
-### 4. Indicator Species Analysis
-Describe the IndVal method by Dufrêne & Legendre (1997).
-### 5. Structural Analysis and Ecological Importance
-Explain the Importance Value Index (IVI) (Curtis & McIntosh, 1951).
-### 6. Biomass and Carbon Stock Estimation
-Describe the use of pantropical allometric models (Chave et al., 2014).
-
-**Study Context:**
-{vegetationDescriptions}`,
   },
 };
 

@@ -2,7 +2,11 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { BiomassConfig, SpeciesData, SiteCooccurrenceMatrix, SignificantPair, AllEnvironmentalAnalyses, SingleNicheData, SingleCCAPlotData, CooccurrenceCell, SiteEcologicalParameters, RarefactionData, IndValResult, FullStructuralAnalysis, SiteNicheData, SiteCCAPlotData, BiomassAnalysisResults, EquationSelection, PlotInfo, ForestDataRow, SiteData } from './types';
 import { parseData, parseSiteData, runCooccurrenceAnalysis, getSignificantPairs, analyzeAllEnvironmentalFactors, calculateSpeciesEnvironmentalNiche, runStructuralAnalysis, runCCAAnalysis, calculateEcologicalParameters, runIndValAnalysis, runBiomassAnalysis, calculateRarefactionData } from './services/analysisService';
-import { generateFinalInterpretation, generateMethodology, hasApiKeyConfigured, getApiKey } from './services/geminiService';
+import { generateFinalInterpretation, hasApiKeyConfigured, getApiKey } from './services/geminiService';
+import { buildDossier } from './services/report/dossier';
+import { AuditIssues, auditInterpretation, buildInterpretationPrompt } from './services/report/aiReport';
+import { buildMethodology } from './services/report/methods';
+import AuditPanel from './components/AuditPanel';
 import { generateMethodologyDocx, generateInterpretationDocx } from './services/docxGenerator';
 import DataInput from './components/DataInput';
 import CooccurrenceTable from './components/CooccurrenceTable';
@@ -21,202 +25,6 @@ import { sampleSpeciesData } from './sample-data/species';
 import { sampleSiteData } from './sample-data/site';
 import { useTranslations } from './translations';
 import { useLanguage } from './LanguageContext';
-
-const formatMatrixForPrompt = (matrix: SiteCooccurrenceMatrix['General']): string => {
-  const positivePairs: string[] = [];
-  const negativePairs: string[] = [];
-  const species = Object.keys(matrix).sort();
-
-  species.forEach(spA => {
-    species.forEach(spB => {
-      if (spA >= spB) return; 
-      
-      const cell = matrix[spA][spB] as CooccurrenceCell;
-      if ('effect' in cell) {
-        const p_value = cell.obs > cell.exp ? cell.p_gt : cell.p_lt;
-        const pText = `p = ${p_value.toPrecision(2)}, FDR-adjusted p = ${cell.p_adj !== null ? cell.p_adj.toPrecision(2) : 'n/a'}`;
-        if (cell.effect === 'positive') {
-          positivePairs.push(`- *${spA}* & *${spB}*: co-occur more than expected (Obs: ${cell.obs}, Exp: ${cell.exp.toFixed(1)}, ${pText})`);
-        } else if (cell.effect === 'negative') {
-          negativePairs.push(`- *${spA}* & *${spB}*: co-occur less than expected (Obs: ${cell.obs}, Exp: ${cell.exp.toFixed(1)}, ${pText})`);
-        }
-      }
-    });
-  });
-
-  let summary = 'Co-occurrence Statistical Analysis Summary (probabilistic model of Veech 2013; pairs with expected co-occurrence < 1 not tested; significance at FDR-adjusted p < 0.05, Benjamini–Hochberg):\n\n';
-  if (positivePairs.length > 0) {
-    summary += 'Pairs with **significant POSITIVE association**:\n';
-    summary += positivePairs.join('\n');
-    summary += '\n\n';
-  } else {
-    summary += '**No pairs with significant positive association were found.**\n\n';
-  }
-  
-  if (negativePairs.length > 0) {
-    summary += 'Pairs with **significant NEGATIVE association**:\n';
-    summary += negativePairs.join('\n');
-    summary += '\n';
-  } else {
-    summary += '**No pairs with significant negative association were found.**\n';
-  }
-
-  return summary;
-};
-
-const formatEnvironmentalAnalysisForPrompt = (allAnalyses: AllEnvironmentalAnalyses | null): string => {
-    if (!allAnalyses || Object.keys(allAnalyses).length === 0) {
-        return "No environmental data was provided or it was not applicable for the significant pairs.";
-    }
-    let analysesString = 'Comparative Environmental Analysis Results for Significant Pairs:\n\n';
-    const sortedPairKeys = Object.keys(allAnalyses).sort();
-    for (const pairKey of sortedPairKeys) {
-        const { pair, analysis } = allAnalyses[pairKey];
-        analysesString += `**Pair: *${pair.speciesA}* & *${pair.speciesB}* (${pair.effect.toUpperCase()} Association)**\n`;
-        analysis.forEach(res => {
-            analysesString += `- *${res.factor}*: Co-occurrence Mean: ${res.cooccurrenceMean}, Control Mean: ${res.controlMean}\n`;
-        });
-        analysesString += '\n';
-    }
-    return analysesString;
-};
-
-const formatNicheAnalysisForPrompt = (nicheData: SingleNicheData | null): string => {
-    if (!nicheData || Object.keys(nicheData).length === 0) {
-        return "No environmental niche analysis was performed.";
-    }
-
-    const species = Object.keys(nicheData).sort();
-    if (species.length === 0) {
-        return "No data found for environmental niche analysis.";
-    }
-    const factors = Object.keys(nicheData[species[0]]).sort();
-
-    let table = `Environmental Niche Analysis (average conditions where each species is present):\n\n`;
-    table += `| Species | ${factors.join(' | ')} |\n`;
-    table += `|---|${factors.map(() => '---').join('|')}|\n`;
-
-    species.forEach(s => {
-        const values = factors.map(f => nicheData[s][f]).join(' | ');
-        table += `| *${s}* | ${values} |\n`;
-    });
-
-    return table;
-};
-
-const formatCCAPlotDataForPrompt = (ccaPlotData: SingleCCAPlotData | null): string => {
-    if (!ccaPlotData || !ccaPlotData.stats) {
-        return `CCA analysis was not performed. ${(ccaPlotData?.notes || []).join(' ')}`;
-    }
-    const st = ccaPlotData.stats;
-    let summary = 'Canonical Correspondence Analysis (CCA; computed numerically, equivalent to vegan::cca):\n\n';
-    summary += `- Plots: ${st.nSites}; species: ${st.nSpecies}; environmental variables: ${Object.keys(st.vif).join(', ')}.\n`;
-    summary += `- Total inertia: ${st.totalInertia.toFixed(4)}; constrained inertia: ${st.constrainedInertia.toFixed(4)} (${st.constrainedPercent.toFixed(1)}% of total).\n`;
-    summary += `- CCA1 explains ${st.axisPercent[0]?.toFixed(1) ?? 0}% and CCA2 ${st.axisPercent[1]?.toFixed(1) ?? 0}% of total inertia (eigenvalues: ${st.eigenvalues.slice(0, 2).map(e => e.toFixed(4)).join(', ')}).\n`;
-    summary += `- Permutation test of the whole model: pseudo-F = ${st.F.toFixed(3)}, df = ${st.df}, ${st.dfResidual}, p = ${st.pValue.toFixed(3)} (${st.nPermutations} permutations).\n`;
-    summary += `- Variance inflation factors: ${Object.entries(st.vif).map(([k, v]) => `${k} = ${Number.isFinite(v) ? v.toFixed(2) : '∞'}`).join('; ')}.\n`;
-    summary += '\n**Biplot scores of environmental variables (correlation with CCA1, CCA2):**\n';
-    ccaPlotData.biplot.vectors.forEach(v => {
-        summary += `- ${v.name}: ${v.x.toFixed(3)}, ${v.y.toFixed(3)}\n`;
-    });
-    const labeled = ccaPlotData.biplot.species.filter(s => !s.isBackground);
-    summary += '\n**Scores (scaling 2) of the most abundant species (CCA1, CCA2):**\n';
-    labeled.forEach(sp => {
-        summary += `- *${sp.name}*: ${sp.x.toFixed(3)}, ${sp.y.toFixed(3)}\n`;
-    });
-    if (ccaPlotData.notes?.length) summary += `\nNotes: ${ccaPlotData.notes.join(' ')}\n`;
-    return summary;
-};
-
-const formatEcoParamsForPrompt = (ecoParams: SiteEcologicalParameters | null): string => {
-    if (!ecoParams) return "No ecological parameter analysis was performed.";
-    const sites = Object.keys(ecoParams).sort();
-    if (sites.length === 0) return "No ecological parameter data available.";
-
-    let table = `Summary of Ecological Parameters per Site:\n\n`;
-    table += `| Site | Richness (S) | Individuals (N) | Shannon (H') | Simpson (D) | Pielou (J') | Sample Coverage (SC) | Margalef (d) | Chao-1 (95% CI) |\n`;
-    table += `|---|---|---|---|---|---|---|---|---|\n`;
-
-    sites.forEach(site => {
-        const d = ecoParams[site];
-        table += `| ${site} | ${d.speciesRichness} | ${d.individuals} | ${d.shannon.toFixed(3)} | ${d.simpsonDominance.toFixed(3)} | ${d.pielouEvenness.toFixed(3)} | ${d.sampleCoverage.toFixed(3)} | ${d.margalefRichness.toFixed(3)} | ${d.chao1.toFixed(2)} (${d.chao1Lower.toFixed(2)}–${d.chao1Upper.toFixed(2)}) |\n`;
-    });
-
-    return table;
-};
-
-const formatIndValForPrompt = (indValData: IndValResult | null): string => {
-    if (!indValData) return "No indicator species analysis was performed.";
-    const species = Object.keys(indValData).sort();
-    if (species.length === 0) return "No indicator species data available.";
-
-    let summary = 'Indicator Species Analysis (IndVal; Dufrêne & Legendre 1997; 999 permutations) - Significant Indicators (p < 0.05):\n\n';
-    let significantFound = false;
-    
-    species.forEach(sp => {
-        const sites = Object.keys(indValData[sp]).sort();
-        sites.forEach(site => {
-            const { indval, pvalue, pAdj, isBest } = indValData[sp][site];
-            if (isBest && pvalue !== null && pvalue < 0.05) {
-                summary += `- ***${sp}*** is a significant indicator for site **${site}** (IndVal: ${indval.toFixed(1)}%, p: ${pvalue.toFixed(3)}, FDR-adjusted p: ${pAdj?.toFixed(3)})\n`;
-                significantFound = true;
-            }
-        });
-    });
-
-    if (!significantFound) {
-        return "No significant indicator species were found for any site group (p < 0.05).";
-    }
-    return summary;
-};
-
-const formatRarefactionForPrompt = (rarefactionData: RarefactionData | null): string => {
-    if (!rarefactionData) return "No rarefaction analysis was performed.";
-    const sites = Object.keys(rarefactionData).sort();
-    if (sites.length === 0) return "No rarefaction data available.";
-
-    let summary = 'Rarefaction and Extrapolation of Hill numbers (iNEXT method, Chao et al. 2014; 95% bootstrap CI):\n\n';
-    sites.forEach(site => {
-        const data = rarefactionData[site];
-        summary += `**Site: ${site}** (n = ${data.n} individuals, S = ${data.S} species)\n`;
-        const obsCov = data.coverage.find(c => c.m === data.n);
-        if (obsCov) summary += `- Sample coverage at n: ${(100 * obsCov.SC).toFixed(1)}%.\n`;
-        (['0', '1', '2'] as const).forEach(q => {
-            const curve = data.byOrder[q];
-            const end = curve.extrapolated.curve[curve.extrapolated.curve.length - 1];
-            const endIdx = curve.confidenceInterval.upper.length - 1;
-            summary += `- q = ${q}: observed ${curve.observed.point.y.toFixed(2)}`;
-            if (end) summary += `; extrapolated to ${end.x} individuals: ${end.y.toFixed(2)} (95% CI ${curve.confidenceInterval.lower[endIdx].y.toFixed(2)}–${curve.confidenceInterval.upper[endIdx].y.toFixed(2)})`;
-            summary += '\n';
-        });
-        summary += '\n';
-    });
-    return summary;
-};
-
-const formatBiomassForPrompt = (biomassResults: BiomassAnalysisResults | null): string => {
-    if (!biomassResults) return "No biomass/carbon analysis was performed.";
-    let summary = 'Biomass and Carbon Stock Analysis Summary:\n\n';
-
-    summary += `**Overall Totals:**\n`;
-    summary += `- Total Above-Ground Biomass (AGB): ${biomassResults.totals.agb.toFixed(2)} Mg\n`;
-    summary += `- Total Stored Carbon: ${biomassResults.totals.carbon.toFixed(2)} Mg (carbon fraction ${biomassResults.carbonFraction})\n`;
-    if (biomassResults.totals.carbonPerHa) {
-        summary += `- Carbon Density of the sampled area (total carbon / total sampled area): ${biomassResults.totals.carbonPerHa.toFixed(2)} Mg/ha\n\n`;
-    }
-
-    summary += `**Carbon Stocks by Vegetation Type:**\n`;
-    summary += `| Vegetation Type | Carbon (Mg) | Carbon (Mg/ha) |\n`;
-    summary += `|---|---|---|\n`;
-    biomassResults.summary.forEach(row => {
-        const carbonPerHa = row['Carbono_Mg/ha'] ? row['Carbono_Mg/ha'].toFixed(2) : 'N/A';
-        summary += `| ${row['Tipo de vegetación']} | ${row.Carbono_Mg_Total.toFixed(2)} | ${carbonPerHa} |\n`;
-    });
-    summary += '\n';
-
-    return summary;
-};
-
 
 const App: React.FC = () => {
     const t = useTranslations();
@@ -241,11 +49,11 @@ const App: React.FC = () => {
     // State for interpretation text from Gemini
     const [methodologyText, setMethodologyText] = useState<string>('');
     const [interpretationText, setInterpretationText] = useState<string>('');
+    const [interpretationAudit, setInterpretationAudit] = useState<AuditIssues | null>(null);
     
     // UI/App state
     const [isLoading, setIsLoading] = useState(false);
     const [isGeneratingInterpretation, setIsGeneratingInterpretation] = useState(false);
-    const [isGeneratingMethodology, setIsGeneratingMethodology] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState('cooccurrence');
     const [isBiomassAnalysisEnabled, setIsBiomassAnalysisEnabled] = useState(false);
@@ -281,6 +89,7 @@ const App: React.FC = () => {
         setIndValResults(null);
         setBiomassResults(null);
         setInterpretationText('');
+        setInterpretationAudit(null);
         setMethodologyText('');
         setError(null);
         setActiveTab('cooccurrence');
@@ -395,42 +204,22 @@ const App: React.FC = () => {
         }
 
         try {
-            const matrixString = formatMatrixForPrompt(cooccurrenceMatrix['General']);
-            const analysesString = formatEnvironmentalAnalysisForPrompt(allEnvironmentalAnalyses);
-            const nicheString = formatNicheAnalysisForPrompt(nicheData ? nicheData['General'] : null);
-            const ccaString = formatCCAPlotDataForPrompt(ccaPlotData ? ccaPlotData['General'] : null);
-            const ecoParamsString = formatEcoParamsForPrompt(ecologicalParameters);
-            const indValString = formatIndValForPrompt(indValResults);
-            const rarefactionString = formatRarefactionForPrompt(rarefactionData);
-            const biomassString = formatBiomassForPrompt(biomassResults);
-
-            const descriptions = biomassConfig?.descriptions ?? {};
-            let descriptionsString = '';
-            if (Object.keys(descriptions).filter(k => typeof descriptions[k] === 'string' && (descriptions[k] as string).trim()).length > 0) {
-                 descriptionsString = Object.entries(descriptions)
-                    .filter(([, desc]) => typeof desc === 'string' && desc.trim())
-                    .map(([site, desc]) => `- **${site}:** ${desc}`)
-                    .join('\n');
-            } else {
-                 descriptionsString = language === 'es'
-                    ? "No se proporcionaron caracterizaciones detalladas para los sitios de muestreo."
-                    : "No detailed characterizations were provided for the study sites.";
-            }
-
-            const prompt = t.finalInterpretationPromptTemplate
-                .replace('{matrixString}', matrixString)
-                .replace('{analysesString}', analysesString)
-                .replace('{nicheString}', nicheString)
-                .replace('{ccaString}', ccaString)
-                .replace('{ecoParamsString}', ecoParamsString)
-                .replace('{indValString}', indValString)
-                .replace('{rarefactionString}', rarefactionString)
-                .replace('{biomassString}', biomassString)
-                .replace('{vegetationDescriptions}', descriptionsString);
-
-            const result = await generateFinalInterpretation(prompt);
-            setInterpretationText(result);
-
+            const dossier = buildDossier({
+                cooccurrence: cooccurrenceMatrix,
+                environmental: allEnvironmentalAnalyses,
+                niche: nicheData ? nicheData['General'] : null,
+                cca: ccaPlotData ? ccaPlotData['General'] : null,
+                ecoParams: ecologicalParameters,
+                indval: indValResults,
+                rarefaction: rarefactionData,
+                biomass: biomassResults,
+                siteDescriptions: biomassConfig?.descriptions ?? {},
+            });
+            const lang = language === 'es' ? 'es' : 'en';
+            const raw = await generateFinalInterpretation(buildInterpretationPrompt(dossier, lang));
+            const audited = auditInterpretation(raw, dossier, lang);
+            setInterpretationText(audited.markdown);
+            setInterpretationAudit(audited.issues);
         } catch (e: any) {
             setError(`${t.interpretationError} ${e.message || t.unknownInterpretationError}`);
         } finally {
@@ -438,32 +227,30 @@ const App: React.FC = () => {
         }
     }, [cooccurrenceMatrix, allEnvironmentalAnalyses, nicheData, ccaPlotData, ecologicalParameters, indValResults, rarefactionData, biomassResults, t, biomassConfig, language]);
     
-    const handleGenerateMethodology = useCallback(async () => {
-        setIsGeneratingMethodology(true);
+    // La metodología se genera sin IA, a partir de los parámetros reales del análisis.
+    const handleGenerateMethodology = useCallback(() => {
         setError(null);
         try {
-            const descriptions = biomassConfig?.descriptions ?? {};
-            let descriptionsString = '';
-            if (Object.keys(descriptions).filter(k => typeof descriptions[k] === 'string' && (descriptions[k] as string).trim()).length > 0) {
-                 descriptionsString = Object.entries(descriptions)
-                    .filter(([, desc]) => typeof desc === 'string' && desc.trim())
-                    .map(([site, desc]) => `**${site}:** ${desc}`)
-                    .join('\n\n');
-            } else {
-                 descriptionsString = language === 'es' 
-                    ? "No se proporcionaron caracterizaciones detalladas para los sitios de muestreo." 
-                    : "No detailed characterizations were provided for the study sites.";
-            }
-            
-            const prompt = t.methodologyPrompt.replace('{vegetationDescriptions}', descriptionsString);
-            const result = await generateMethodology(prompt);
-            setMethodologyText(result);
+            const speciesData = parseData(speciesGridData, true) as SpeciesData[];
+            const plots = new Set(speciesData.map(d => `${d['Tipo de vegetación']}-${d.Parcela}`));
+            const vegTypes = new Set(speciesData.map(d => d['Tipo de vegetación']).filter(Boolean));
+            const species = new Set(speciesData.map(d => d['N_Científico (Abreviado)']).filter(Boolean));
+            const { markdown } = buildMethodology({
+                lang: language === 'es' ? 'es' : 'en',
+                nPlots: plots.size,
+                nVegetationTypes: vegTypes.size,
+                nSpecies: species.size,
+                nIndividuals: speciesData.length,
+                hasEnvironmentalData: siteGridData.length > 1,
+                cca: ccaPlotData ? ccaPlotData['General'] : null,
+                biomass: biomassResults,
+                siteDescriptions: biomassConfig?.descriptions ?? {},
+            });
+            setMethodologyText(markdown);
         } catch (e: any) {
             setError(`${t.methodologyError} ${e.message || t.unknownMethodologyError}`);
-        } finally {
-            setIsGeneratingMethodology(false);
         }
-    }, [t, biomassConfig, language]);
+    }, [t, biomassConfig, language, speciesGridData, siteGridData, ccaPlotData, biomassResults]);
     
     const [isGeneratingMethodologyDocx, setIsGeneratingMethodologyDocx] = useState(false);
     const handleExportMethodologyDocx = useCallback(async () => {
@@ -549,8 +336,8 @@ const App: React.FC = () => {
                                 </p>
                                 <p className="text-xs text-amber-800 leading-relaxed md:max-w-3xl">
                                     {language === 'es' 
-                                        ? 'Todos los análisis estadísticos (incluidos CCA y rarefacción) se calculan en su navegador y no requieren clave. La clave de API de Gemini solo se usa para redactar la interpretación y la metodología; para ello se envía a Google un resumen de los resultados (no los datos de campo completos).' 
-                                        : 'All statistical analyses (including CCA and rarefaction) run in your browser and need no key. The Gemini API key is only used to draft the interpretation and methodology; to do so, a summary of the results (not the full field data) is sent to Google.'}
+                                        ? 'Todos los análisis estadísticos (incluidos CCA y rarefacción) se calculan en su navegador y no requieren clave. La metodología se genera sin IA. La clave de API de Gemini solo se usa para redactar el borrador de la interpretación; para ello se envía a Google un resumen de los resultados (no los datos de campo completos).' 
+                                        : 'All statistical analyses (including CCA and rarefaction) run in your browser and need no key. The methodology is generated without AI. The Gemini API key is only used to draft the interpretation; to do so, a summary of the results (not the full field data) is sent to Google.'}
                                 </p>
                             </div>
                             <button
@@ -688,9 +475,9 @@ const App: React.FC = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                                         <div className="space-y-4">
                                             <div className="flex justify-between items-center">
-                                                <button onClick={handleGenerateMethodology} disabled={isGeneratingMethodology} className="flex items-center bg-secondary hover:bg-primary text-white font-bold py-2 px-4 rounded-lg shadow-md transition-all duration-200 disabled:bg-gray-400">
+                                                <button onClick={handleGenerateMethodology} className="flex items-center bg-secondary hover:bg-primary text-white font-bold py-2 px-4 rounded-lg shadow-md transition-all duration-200 disabled:bg-gray-400">
                                                     <DocumentTextIcon className="h-5 w-5 mr-2"/>
-                                                    {isGeneratingMethodology ? t.writingButton : t.methodologyButton}
+                                                    {t.methodologyButton}
                                                 </button>
                                                 {methodologyText && (
                                                     <button onClick={handleExportMethodologyDocx} disabled={isGeneratingMethodologyDocx} className="flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-all duration-200 disabled:bg-gray-400">
@@ -699,7 +486,6 @@ const App: React.FC = () => {
                                                     </button>
                                                 )}
                                             </div>
-                                            {isGeneratingMethodology && <div className="flex items-center p-2"><div className="loader w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2"></div><p className="text-gray-600">{t.loadingMethodology}</p></div>}
                                             {methodologyText && (
                                                 <div className="p-4 border rounded-lg bg-gray-50 max-h-[600px] overflow-y-auto">
                                                     <h3 className="text-xl font-bold text-primary mb-4">{t.methodologySectionTitle}</h3>
@@ -725,6 +511,7 @@ const App: React.FC = () => {
                                             {interpretationText && (
                                                 <div className="p-4 border rounded-lg bg-gray-50 max-h-[600px] overflow-y-auto">
                                                     <h3 className="text-xl font-bold text-primary mb-4">{t.interpretationSectionTitle}</h3>
+                                                    {interpretationAudit && <AuditPanel issues={interpretationAudit} />}
                                                     <InterpretationDisplay text={interpretationText} />
                                                 </div>
                                             )}

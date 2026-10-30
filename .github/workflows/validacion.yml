@@ -37,6 +37,11 @@ jobs:
       - name: Tests (comparación con R)
         run: npm test
 
+      - name: Bibliografía contra Crossref
+        env:
+          CHECK_REFERENCES: '1'
+        run: npx vitest run tests/references.crossref.test.ts
+
       - name: Guardar valores de referencia generados
         if: always()
         uses: actions/upload-artifact@v4
